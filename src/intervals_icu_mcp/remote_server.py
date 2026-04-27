@@ -38,6 +38,10 @@ def main() -> None:
     if not server_url:
         raise RuntimeError("MCP_SERVER_URL must be set to the public HTTPS URL of this service")
 
+    transport = os.getenv("MCP_TRANSPORT", "streamable-http")
+    transport_path = "/mcp" if transport in ("streamable-http", "http") else "/sse"
+    resource_url = f"{server_url}{transport_path}"
+
     mcp = server_module.mcp
     mcp.auth = InMemoryOAuthProvider(
         base_url=server_url,
@@ -52,13 +56,13 @@ def main() -> None:
 
     # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
     # to /.well-known/oauth-protected-resource (no suffix), but only the
-    # /sse-suffixed route is registered. Alias the no-suffix path to the same
+    # per-resource path is registered. Alias the no-suffix path to the same
     # resource metadata so claude.ai's discovery follows correctly.
     @mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS", "HEAD"])
     async def protected_resource_metadata(_request: Request) -> JSONResponse:
         return JSONResponse(
             {
-                "resource": f"{server_url}/sse",
+                "resource": resource_url,
                 "authorization_servers": [f"{server_url}/"],
                 "scopes_supported": ["mcp"],
                 "bearer_methods_supported": ["header"],
@@ -67,7 +71,6 @@ def main() -> None:
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
-    transport = os.getenv("MCP_TRANSPORT", "sse")
     logger.info("Starting OAuth-protected MCP server on %s:%s (transport=%s, issuer=%s)", host, port, transport, server_url)
     mcp.run(transport=transport, host=host, port=port)
 
