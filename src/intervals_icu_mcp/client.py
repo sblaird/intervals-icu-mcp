@@ -569,6 +569,7 @@ class ICUClient:
         athlete_id: str | None = None,
         oldest: str | None = None,
         newest: str | None = None,
+        activity_type: str = "Ride",
     ) -> PowerCurve:
         """Get power curve data (best efforts for various durations).
 
@@ -576,12 +577,13 @@ class ICUClient:
             athlete_id: Athlete ID (uses config default if not provided)
             oldest: Oldest date to include (ISO-8601 format)
             newest: Newest date to include (ISO-8601 format)
+            activity_type: ActivityType filter (e.g., "Ride", "VirtualRide"). Required by API.
 
         Returns:
             PowerCurve with best efforts data
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
-        params = {}
+        params: dict[str, str] = {"type": activity_type}
 
         if oldest:
             params["oldest"] = oldest
@@ -596,6 +598,7 @@ class ICUClient:
         athlete_id: str | None = None,
         oldest: str | None = None,
         newest: str | None = None,
+        activity_type: str = "Ride",
     ) -> HRCurve:
         """Get heart rate curve data (best efforts for various durations).
 
@@ -603,12 +606,13 @@ class ICUClient:
             athlete_id: Athlete ID (uses config default if not provided)
             oldest: Oldest date to include (ISO-8601 format)
             newest: Newest date to include (ISO-8601 format)
+            activity_type: ActivityType filter (e.g., "Ride", "Run"). Required by API.
 
         Returns:
             HRCurve with best efforts data
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
-        params = {}
+        params: dict[str, str] = {"type": activity_type}
 
         if oldest:
             params["oldest"] = oldest
@@ -624,6 +628,7 @@ class ICUClient:
         oldest: str | None = None,
         newest: str | None = None,
         use_gap: bool = False,
+        activity_type: str = "Run",
     ) -> PaceCurve:
         """Get pace curve data (best efforts for various durations).
 
@@ -632,12 +637,13 @@ class ICUClient:
             oldest: Oldest date to include (ISO-8601 format)
             newest: Newest date to include (ISO-8601 format)
             use_gap: Use Grade Adjusted Pace for running (default False)
+            activity_type: ActivityType filter (e.g., "Run", "VirtualRun"). Required by API.
 
         Returns:
             PaceCurve with best efforts data
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
-        params = {}
+        params: dict[str, str] = {"type": activity_type}
 
         if oldest:
             params["oldest"] = oldest
@@ -683,8 +689,15 @@ class ICUClient:
             List of Interval objects
         """
         response = await self._request("GET", f"/activity/{activity_id}/intervals")
+        payload = response.json()
+        # The endpoint returns an activity wrapper {"id":..., "icu_intervals":[...], ...}
+        # rather than a bare list of intervals.
+        if isinstance(payload, dict):
+            intervals_list = payload.get("icu_intervals") or payload.get("intervals") or []
+        else:
+            intervals_list = payload
         adapter = TypeAdapter(list[Interval])
-        return adapter.validate_python(response.json())
+        return adapter.validate_python(intervals_list)
 
     async def get_activity_streams(
         self,
@@ -701,26 +714,46 @@ class ICUClient:
         Returns:
             ActivityStreams object with time-series data
         """
-        params = {}
+        params: dict[str, str] = {}
         if streams:
             params["types"] = ",".join(streams)
 
         response = await self._request("GET", f"/activity/{activity_id}/streams", params=params)
-        return ActivityStreams(**response.json())
+        payload = response.json()
+        # API returns a list of {"type": "<stream-name>", "data": [...]} entries.
+        # ActivityStreams expects per-stream-name fields, so reshape.
+        if isinstance(payload, list):
+            streams_dict: dict[str, Any] = {}
+            for entry in payload:
+                if not isinstance(entry, dict):
+                    continue
+                name = entry.get("type")
+                data = entry.get("data")
+                if name and data is not None:
+                    streams_dict[name] = data
+            return ActivityStreams(**streams_dict)
+        return ActivityStreams(**payload)
 
     async def get_best_efforts(
         self,
         activity_id: str,
+        stream: str = "watts",
     ) -> list[BestEffort]:
         """Get best efforts for an activity.
 
         Args:
             activity_id: Activity ID
+            stream: Stream to compute best efforts for (e.g., "watts", "heartrate", "pace").
+                Required by the API; defaults to "watts" for cycling.
 
         Returns:
             List of BestEffort objects
         """
-        response = await self._request("GET", f"/activity/{activity_id}/best-efforts")
+        response = await self._request(
+            "GET",
+            f"/activity/{activity_id}/best-efforts",
+            params={"stream": stream},
+        )
         adapter = TypeAdapter(list[BestEffort])
         return adapter.validate_python(response.json())
 
@@ -731,28 +764,30 @@ class ICUClient:
         min_duration: int | None = None,
         max_duration: int | None = None,
         limit: int = 30,
+        activity_type: str = "Ride",
     ) -> list[dict[str, Any]]:
         """Search for intervals across activities.
 
         Args:
             athlete_id: Athlete ID (uses config default if not provided)
             interval_type: Type of interval to search for
-            min_duration: Minimum duration in seconds
-            max_duration: Maximum duration in seconds
+            min_duration: Minimum duration in seconds (sent as `minSecs`)
+            max_duration: Maximum duration in seconds (sent as `maxSecs`)
             limit: Maximum number of results to return
+            activity_type: ActivityType filter required by the API (e.g., "Ride", "Run")
 
         Returns:
             List of matching intervals with activity context
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
-        params = {}
+        params: dict[str, Any] = {"type": activity_type, "limit": limit}
 
         if interval_type:
-            params["type"] = interval_type
+            params["intervalType"] = interval_type
         if min_duration:
-            params["minDuration"] = min_duration
+            params["minSecs"] = min_duration
         if max_duration:
-            params["maxDuration"] = max_duration
+            params["maxSecs"] = max_duration
 
         response = await self._request(
             "GET", f"/athlete/{athlete_id}/activities/interval-search", params=params

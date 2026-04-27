@@ -16,6 +16,10 @@ async def get_power_curves(
         str | None,
         "Time period shorthand: 'week', 'month', 'year', 'all' (optional)",
     ] = None,
+    activity_type: Annotated[
+        str,
+        "Activity type filter required by the API: 'Ride', 'VirtualRide', etc.",
+    ] = "Ride",
     ctx: Context | None = None,
 ) -> str:
     """Get power curve data showing best efforts for various durations.
@@ -71,7 +75,7 @@ async def get_power_curves(
             period_label = "90_days"
 
         async with ICUClient(config) as client:
-            power_curve = await client.get_power_curves(oldest=oldest)
+            power_curve = await client.get_power_curves(oldest=oldest, activity_type=activity_type)
 
             if not power_curve.data or len(power_curve.data) == 0:
                 return ResponseBuilder.build_response(

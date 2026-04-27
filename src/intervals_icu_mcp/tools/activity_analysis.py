@@ -217,6 +217,10 @@ async def get_activity_intervals(
 
 async def get_best_efforts(
     activity_id: Annotated[str, "Activity ID to analyze"],
+    stream: Annotated[
+        str,
+        "Stream to compute best efforts for: 'watts' (cycling), 'heartrate', or 'pace' (running)",
+    ] = "watts",
     ctx: Context | None = None,
 ) -> str:
     """Get best efforts/peak performances from an activity.
@@ -227,6 +231,7 @@ async def get_best_efforts(
 
     Args:
         activity_id: The unique ID of the activity
+        stream: Which stream to compute best efforts for (defaults to "watts")
 
     Returns:
         JSON string with best efforts data
@@ -236,7 +241,7 @@ async def get_best_efforts(
 
     try:
         async with ICUClient(config) as client:
-            best_efforts = await client.get_best_efforts(activity_id)
+            best_efforts = await client.get_best_efforts(activity_id, stream=stream)
 
             if not best_efforts:
                 return ResponseBuilder.build_response(
@@ -304,6 +309,10 @@ async def search_intervals(
     min_duration: Annotated[int | None, "Minimum duration in seconds"] = None,
     max_duration: Annotated[int | None, "Maximum duration in seconds"] = None,
     limit: Annotated[int, "Maximum number of results to return"] = 30,
+    activity_type: Annotated[
+        str,
+        "Activity type filter required by the API: 'Ride', 'Run', 'VirtualRide', etc.",
+    ] = "Ride",
     ctx: Context | None = None,
 ) -> str:
     """Search for similar intervals across all activities.
@@ -331,6 +340,7 @@ async def search_intervals(
                 min_duration=min_duration,
                 max_duration=max_duration,
                 limit=limit,
+                activity_type=activity_type,
             )
 
             if not results:
