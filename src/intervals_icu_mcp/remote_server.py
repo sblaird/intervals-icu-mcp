@@ -3,14 +3,20 @@
 The upstream entry point (``intervals_icu_mcp.server``) builds a FastMCP
 instance for stdio use. We import that module to pick up the same instance
 (with all 48 tools, the resource, and the prompts already registered),
-attach an in-memory OAuth provider for claude.ai's Custom Connector to
-authenticate against, and run it over HTTP.
+attach an OAuth provider for claude.ai's Custom Connector to authenticate
+against, and run it over HTTP.
 
 Required env vars at runtime:
     INTERVALS_ICU_API_KEY    intervals.icu API key (HTTP Basic password)
     INTERVALS_ICU_ATHLETE_ID athlete id, e.g. "i12345"
     MCP_SERVER_URL           public HTTPS base URL of this service
     PORT                     bind port (Cloud Run sets this)
+
+Optional:
+    OAUTH_TOKEN_STORE        "memory" (default) or "firestore". When set to
+                             "firestore", OAuth state survives revisions.
+    OAUTH_FIRESTORE_PROJECT  GCP project id for Firestore (defaults to ADC).
+    OAUTH_FIRESTORE_COLLECTION/OAUTH_FIRESTORE_DOCUMENT  override the doc path.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 import intervals_icu_mcp.server as server_module  # noqa: F401  # registers all tools
+from intervals_icu_mcp.firestore_oauth import FirestoreOAuthProvider
 
 logger = logging.getLogger("intervals_icu_mcp.remote")
 
@@ -43,7 +50,7 @@ def main() -> None:
     resource_url = f"{server_url}{transport_path}"
 
     mcp = server_module.mcp
-    mcp.auth = InMemoryOAuthProvider(
+    auth_kwargs = dict(
         base_url=server_url,
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
@@ -53,6 +60,18 @@ def main() -> None:
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=["mcp"],
     )
+    token_store = os.getenv("OAUTH_TOKEN_STORE", "memory").lower()
+    if token_store == "firestore":
+        mcp.auth = FirestoreOAuthProvider(
+            project=os.getenv("OAUTH_FIRESTORE_PROJECT") or None,
+            collection=os.getenv("OAUTH_FIRESTORE_COLLECTION", "oauth_state"),
+            document_id=os.getenv("OAUTH_FIRESTORE_DOCUMENT", "singleton"),
+            **auth_kwargs,
+        )
+        logger.info("Using Firestore-backed OAuth token store")
+    else:
+        mcp.auth = InMemoryOAuthProvider(**auth_kwargs)
+        logger.info("Using in-memory OAuth token store (state will not survive revisions)")
 
     # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
     # to /.well-known/oauth-protected-resource (no suffix), but only the
@@ -71,7 +90,13 @@ def main() -> None:
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
-    logger.info("Starting OAuth-protected MCP server on %s:%s (transport=%s, issuer=%s)", host, port, transport, server_url)
+    logger.info(
+        "Starting OAuth-protected MCP server on %s:%s (transport=%s, issuer=%s)",
+        host,
+        port,
+        transport,
+        server_url,
+    )
     mcp.run(transport=transport, host=host, port=port)
 
 
