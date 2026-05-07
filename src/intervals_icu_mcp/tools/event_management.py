@@ -9,9 +9,34 @@ from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..response_builder import ResponseBuilder
 
+_DATETIME_HELP = (
+    "Date 'YYYY-MM-DD' (treated as 00:00 local) or ISO-8601 datetime "
+    "'YYYY-MM-DDTHH:MM:SS' (timezone offset is stripped — the API field is local)"
+)
+
+
+def _normalize_event_datetime(value: str) -> str:
+    """Normalize a date or datetime string for the Intervals.icu events API.
+
+    Why: the upstream API rejects bare 'YYYY-MM-DD' (Java parser fails at index 10)
+    and requires a full ISO-8601 datetime for `start_date_local`. We accept either
+    form from callers and emit what the API wants.
+
+    Accepts 'YYYY-MM-DD' (padded to T00:00:00) or any value parseable by
+    `datetime.fromisoformat` (timezone is dropped because the field is local).
+    Raises ValueError on anything else.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            "Invalid date format. Use 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS' (ISO-8601 datetime)."
+        ) from e
+    return parsed.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
+
 
 async def create_event(
-    start_date: Annotated[str, "Start date in YYYY-MM-DD format"],
+    start_date: Annotated[str, f"Start date or datetime. {_DATETIME_HELP}"],
     name: Annotated[str, "Event name"],
     category: Annotated[str, "Event category: WORKOUT, NOTE, RACE, or GOAL"],
     description: Annotated[str | None, "Event description (optional)"] = None,
@@ -27,7 +52,7 @@ async def create_event(
     planned metrics, notes for tracking information, races, or training goals.
 
     Args:
-        start_date: Date in ISO-8601 format (YYYY-MM-DD)
+        start_date: Date 'YYYY-MM-DD' or ISO-8601 datetime 'YYYY-MM-DDTHH:MM:SS'
         name: Name of the event
         category: Type of event - WORKOUT, NOTE, RACE, or GOAL
         description: Optional detailed description
@@ -50,19 +75,15 @@ async def create_event(
             error_type="validation_error",
         )
 
-    # Validate date format
     try:
-        datetime.strptime(start_date, "%Y-%m-%d")
-    except ValueError:
-        return ResponseBuilder.build_error_response(
-            "Invalid date format. Please use YYYY-MM-DD format.",
-            error_type="validation_error",
-        )
+        normalized_start = _normalize_event_datetime(start_date)
+    except ValueError as e:
+        return ResponseBuilder.build_error_response(str(e), error_type="validation_error")
 
     try:
         # Build event data
         event_data: dict[str, Any] = {
-            "start_date_local": start_date,
+            "start_date_local": normalized_start,
             "name": name,
             "category": category.upper(),
         }
@@ -117,7 +138,7 @@ async def update_event(
     event_id: Annotated[int, "Event ID to update"],
     name: Annotated[str | None, "Updated event name"] = None,
     description: Annotated[str | None, "Updated description"] = None,
-    start_date: Annotated[str | None, "Updated start date (YYYY-MM-DD)"] = None,
+    start_date: Annotated[str | None, f"Updated start date or datetime. {_DATETIME_HELP}"] = None,
     event_type: Annotated[str | None, "Updated activity type"] = None,
     duration_seconds: Annotated[int | None, "Updated duration in seconds"] = None,
     distance_meters: Annotated[float | None, "Updated distance in meters"] = None,
@@ -133,7 +154,7 @@ async def update_event(
         event_id: ID of the event to update
         name: New name for the event
         description: New description
-        start_date: New start date in YYYY-MM-DD format
+        start_date: New start date 'YYYY-MM-DD' or ISO-8601 datetime
         event_type: New activity type
         duration_seconds: New planned duration
         distance_meters: New planned distance
@@ -145,15 +166,12 @@ async def update_event(
     assert ctx is not None
     config: ICUConfig = ctx.get_state("config")
 
-    # Validate date format if provided
-    if start_date:
+    normalized_start: str | None = None
+    if start_date is not None:
         try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-        except ValueError:
-            return ResponseBuilder.build_error_response(
-                "Invalid date format. Please use YYYY-MM-DD format.",
-                error_type="validation_error",
-            )
+            normalized_start = _normalize_event_datetime(start_date)
+        except ValueError as e:
+            return ResponseBuilder.build_error_response(str(e), error_type="validation_error")
 
     try:
         # Build update data (only include provided fields)
@@ -163,8 +181,8 @@ async def update_event(
             event_data["name"] = name
         if description is not None:
             event_data["description"] = description
-        if start_date is not None:
-            event_data["start_date_local"] = start_date
+        if normalized_start is not None:
+            event_data["start_date_local"] = normalized_start
         if event_type is not None:
             event_data["type"] = event_type
         if duration_seconds is not None:
@@ -322,13 +340,14 @@ async def bulk_create_events(
             # Normalize category to uppercase
             event_data["category"] = event_data["category"].upper()
 
-            # Validate date format
+            # Normalize start_date_local to ISO-8601 datetime the API accepts
             try:
-                datetime.strptime(event_data["start_date_local"], "%Y-%m-%d")
-            except ValueError:
+                event_data["start_date_local"] = _normalize_event_datetime(
+                    event_data["start_date_local"]
+                )
+            except ValueError as e:
                 return ResponseBuilder.build_error_response(
-                    f"Event {i}: Invalid date format. Please use YYYY-MM-DD format.",
-                    error_type="validation_error",
+                    f"Event {i}: {e}", error_type="validation_error"
                 )
 
         async with ICUClient(config) as client:
@@ -434,7 +453,7 @@ async def bulk_delete_events(
 
 async def duplicate_event(
     event_id: Annotated[int, "Event ID to duplicate"],
-    new_date: Annotated[str, "New date for the duplicated event (YYYY-MM-DD format)"],
+    new_date: Annotated[str, f"New date or datetime for the duplicated event. {_DATETIME_HELP}"],
     ctx: Context | None = None,
 ) -> str:
     """Duplicate an existing event to a new date.
@@ -444,7 +463,7 @@ async def duplicate_event(
 
     Args:
         event_id: ID of the event to duplicate
-        new_date: New date in YYYY-MM-DD format
+        new_date: New date 'YYYY-MM-DD' or ISO-8601 datetime
 
     Returns:
         JSON string with the duplicated event
@@ -452,18 +471,14 @@ async def duplicate_event(
     assert ctx is not None
     config: ICUConfig = ctx.get_state("config")
 
-    # Validate date format
     try:
-        datetime.strptime(new_date, "%Y-%m-%d")
-    except ValueError:
-        return ResponseBuilder.build_error_response(
-            "Invalid date format. Please use YYYY-MM-DD format.",
-            error_type="validation_error",
-        )
+        normalized_new_date = _normalize_event_datetime(new_date)
+    except ValueError as e:
+        return ResponseBuilder.build_error_response(str(e), error_type="validation_error")
 
     try:
         async with ICUClient(config) as client:
-            duplicated_event = await client.duplicate_event(event_id, new_date)
+            duplicated_event = await client.duplicate_event(event_id, normalized_new_date)
 
             event_result: dict[str, Any] = {
                 "id": duplicated_event.id,
