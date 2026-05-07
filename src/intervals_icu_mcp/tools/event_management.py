@@ -1,5 +1,6 @@
 """Event/calendar management tools for Intervals.icu MCP server."""
 
+import re
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -13,6 +14,75 @@ _DATETIME_HELP = (
     "Date 'YYYY-MM-DD' (treated as 00:00 local) or ISO-8601 datetime "
     "'YYYY-MM-DDTHH:MM:SS' (timezone offset is stripped — the API field is local)"
 )
+
+_DESCRIPTION_HELP = (
+    "Workout description in Intervals.icu syntax. Steps inside repeat blocks "
+    "MUST be prefixed with '- ', e.g.:\n"
+    "  2x\n  - 20m 220-235w\n  - 10m 150-180w\n"
+    "Without the '- ' prefix the upstream parser silently drops the repeat "
+    "structure (and `duration_seconds`/`training_load` will be wrong). "
+    "Free-text descriptions are fine for notes."
+)
+
+_LOAD_OVERRIDE_NOTE = (
+    " Note: Intervals.icu's server recomputes this from the description when "
+    "the description is structured (parses to steps); honored when description "
+    "is empty or free-text."
+)
+
+
+_REPEAT_HEADER_RE = re.compile(r"^\s*\d+x\s*$", re.IGNORECASE)
+_DASH_PREFIX_RE = re.compile(r"^\s*-\s+")
+_LEADING_WS_RE = re.compile(r"^(\s*)")
+
+
+def _expand_repeat_blocks(description: str) -> str:
+    """Normalize Nx repeat blocks for Intervals.icu's parser.
+
+    Why: Intervals.icu's parser requires '- ' prefixes on each step inside a
+    repeat block AND fails when blank lines separate the header from steps
+    or steps from each other. Without normalization, the block falls back to
+    free-text and moving_time/training_load come out empty (the '2x bug'
+    from the user's bug report). Verified against the live API on
+    2026-05-07: dashes alone weren't enough — the blank line still produced
+    moving_time=1800 instead of 3600 until we also dropped intra-block
+    blanks.
+
+    Algorithm: when we see a line matching `^\\d+x$`, treat the following
+    non-blank lines as steps — DROP blank lines (they break parsing), prefix
+    with '- ' if missing, and exit the block at the first non-numeric line
+    (presumed section header like 'Cool down'). Lines already prefixed are
+    left alone (idempotent).
+    """
+    lines = description.split("\n")
+    out: list[str] = []
+    in_repeat = False
+    for line in lines:
+        stripped = line.strip()
+        if _REPEAT_HEADER_RE.match(stripped):
+            in_repeat = True
+            out.append(line)
+            continue
+        if not in_repeat:
+            out.append(line)
+            continue
+        # Inside a repeat block.
+        if not stripped:
+            # Drop blank lines — they break the parser's block detection.
+            continue
+        if _DASH_PREFIX_RE.match(line):
+            out.append(line)
+            continue
+        # Numeric content → looks like a step (e.g. "20m 220w", "10min 80% FTP").
+        if re.search(r"\d", stripped):
+            indent_match = _LEADING_WS_RE.match(line)
+            indent = indent_match.group(1) if indent_match else ""
+            out.append(f"{indent}- {stripped}")
+            continue
+        # Non-numeric text (e.g. "Cool down") → exit the repeat block, leave as-is.
+        in_repeat = False
+        out.append(line)
+    return "\n".join(out)
 
 
 def _normalize_event_datetime(value: str) -> str:
@@ -39,11 +109,13 @@ async def create_event(
     start_date: Annotated[str, f"Start date or datetime. {_DATETIME_HELP}"],
     name: Annotated[str, "Event name"],
     category: Annotated[str, "Event category: WORKOUT, NOTE, RACE, or GOAL"],
-    description: Annotated[str | None, "Event description (optional)"] = None,
+    description: Annotated[str | None, f"Optional. {_DESCRIPTION_HELP}"] = None,
     event_type: Annotated[str | None, "Activity type (e.g., Ride, Run, Swim)"] = None,
-    duration_seconds: Annotated[int | None, "Planned duration in seconds"] = None,
+    duration_seconds: Annotated[
+        int | None, f"Planned duration in seconds.{_LOAD_OVERRIDE_NOTE}"
+    ] = None,
     distance_meters: Annotated[float | None, "Planned distance in meters"] = None,
-    training_load: Annotated[int | None, "Planned training load"] = None,
+    training_load: Annotated[int | None, f"Planned training load.{_LOAD_OVERRIDE_NOTE}"] = None,
     ctx: Context | None = None,
 ) -> str:
     """Create a new calendar event (planned workout, note, race, or goal).
@@ -55,11 +127,15 @@ async def create_event(
         start_date: Date 'YYYY-MM-DD' or ISO-8601 datetime 'YYYY-MM-DDTHH:MM:SS'
         name: Name of the event
         category: Type of event - WORKOUT, NOTE, RACE, or GOAL
-        description: Optional detailed description
+        description: Optional Intervals.icu workout syntax. Steps inside repeat
+            blocks must be '- '-prefixed; this server will auto-prefix any
+            unmarked steps it detects inside `Nx` blocks.
         event_type: Activity type (e.g., "Ride", "Run", "Swim") for workouts
-        duration_seconds: Planned duration for workouts
-        distance_meters: Planned distance for workouts
-        training_load: Planned training load for workouts
+        duration_seconds: Planned duration. Overridden by upstream parser when
+            description is structured.
+        distance_meters: Planned distance in meters
+        training_load: Planned training load. Overridden by upstream parser when
+            description is structured.
 
     Returns:
         JSON string with created event data
@@ -89,7 +165,7 @@ async def create_event(
         }
 
         if description:
-            event_data["description"] = description
+            event_data["description"] = _expand_repeat_blocks(description)
         if event_type:
             event_data["type"] = event_type
         if duration_seconds:
@@ -137,12 +213,14 @@ async def create_event(
 async def update_event(
     event_id: Annotated[int, "Event ID to update"],
     name: Annotated[str | None, "Updated event name"] = None,
-    description: Annotated[str | None, "Updated description"] = None,
+    description: Annotated[str | None, f"Updated description. {_DESCRIPTION_HELP}"] = None,
     start_date: Annotated[str | None, f"Updated start date or datetime. {_DATETIME_HELP}"] = None,
     event_type: Annotated[str | None, "Updated activity type"] = None,
-    duration_seconds: Annotated[int | None, "Updated duration in seconds"] = None,
+    duration_seconds: Annotated[
+        int | None, f"Updated duration in seconds.{_LOAD_OVERRIDE_NOTE}"
+    ] = None,
     distance_meters: Annotated[float | None, "Updated distance in meters"] = None,
-    training_load: Annotated[int | None, "Updated training load"] = None,
+    training_load: Annotated[int | None, f"Updated training load.{_LOAD_OVERRIDE_NOTE}"] = None,
     ctx: Context | None = None,
 ) -> str:
     """Update an existing calendar event.
@@ -180,7 +258,7 @@ async def update_event(
         if name is not None:
             event_data["name"] = name
         if description is not None:
-            event_data["description"] = description
+            event_data["description"] = _expand_repeat_blocks(description)
         if normalized_start is not None:
             event_data["start_date_local"] = normalized_start
         if event_type is not None:
@@ -277,7 +355,13 @@ async def delete_event(
 async def bulk_create_events(
     events: Annotated[
         str,
-        "JSON string containing array of events. Each event should have: start_date_local, name, category, and optional fields like description, type, moving_time, distance, icu_training_load",
+        (
+            "JSON string containing array of events. Each event should have: "
+            "start_date_local, name, category, and optional fields like "
+            "description, type, moving_time, distance, icu_training_load. "
+            "Description follows Intervals.icu workout syntax — see create_event "
+            "for the dash-prefix requirement on repeat-block steps."
+        ),
     ],
     ctx: Context | None = None,
 ) -> str:
@@ -285,6 +369,10 @@ async def bulk_create_events(
 
     This is more efficient than creating events one at a time. Provide a JSON array
     of event objects, each with the same structure as create_event.
+
+    Note: descriptions are auto-passed through `_expand_repeat_blocks` so unmarked
+    steps inside Nx blocks get '- ' prefixes. moving_time/icu_training_load are
+    overridden by Intervals.icu when the description parses to structured steps.
 
     Args:
         events: JSON array of event objects to create
@@ -349,6 +437,11 @@ async def bulk_create_events(
                 return ResponseBuilder.build_error_response(
                     f"Event {i}: {e}", error_type="validation_error"
                 )
+
+            # Auto-prefix unmarked steps inside Nx repeat blocks so the upstream
+            # parser doesn't silently drop the structure.
+            if isinstance(event_data.get("description"), str):
+                event_data["description"] = _expand_repeat_blocks(event_data["description"])
 
         async with ICUClient(config) as client:
             created_events = await client.bulk_create_events(events_data)
