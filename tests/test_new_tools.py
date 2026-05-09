@@ -192,6 +192,9 @@ class TestCalendarReadsLenientDates:
         today_str = today.isoformat()
         assert today_str in days
         assert any(e.get("relative_timing") == "today" for e in days[today_str])
+        # IDs must be in the response so callers can update/delete events.
+        all_events = [e for date_events in days.values() for e in date_events]
+        assert {e["id"] for e in all_events} == {1, 2}
 
     async def test_get_upcoming_workouts_handles_full_datetime(self, mock_config, respx_mock):
         from datetime import datetime, timedelta
@@ -212,6 +215,7 @@ class TestCalendarReadsLenientDates:
         # No exception; tomorrow's workout is returned with relative_timing="tomorrow"
         assert body["data"]["count"] == 1
         assert body["data"]["workouts"][0]["relative_timing"] == "tomorrow"
+        assert body["data"]["workouts"][0]["id"] == 5
 
 
 class TestActivitySummaryDefensive:
