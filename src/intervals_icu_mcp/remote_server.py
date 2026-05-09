@@ -17,6 +17,11 @@ Optional:
                              "firestore", OAuth state survives revisions.
     OAUTH_FIRESTORE_PROJECT  GCP project id for Firestore (defaults to ADC).
     OAUTH_FIRESTORE_COLLECTION/OAUTH_FIRESTORE_DOCUMENT  override the doc path.
+    MCP_STATELESS_HTTP       "1"/"true" (default) to run streamable-http in
+                             stateless mode — every request creates a fresh
+                             transport, so cold-start session loss can't strand
+                             claude.ai. Set to "0" to use stateful sessions
+                             (in-memory; will 400 after a cold start).
 """
 
 from __future__ import annotations
@@ -90,14 +95,19 @@ def main() -> None:
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
+    stateless_http = os.getenv("MCP_STATELESS_HTTP", "1").lower() in ("1", "true", "yes")
     logger.info(
-        "Starting OAuth-protected MCP server on %s:%s (transport=%s, issuer=%s)",
+        "Starting OAuth-protected MCP server on %s:%s (transport=%s, stateless=%s, issuer=%s)",
         host,
         port,
         transport,
+        stateless_http,
         server_url,
     )
-    mcp.run(transport=transport, host=host, port=port)
+    run_kwargs: dict[str, object] = {"transport": transport, "host": host, "port": port}
+    if transport in ("streamable-http", "http"):
+        run_kwargs["stateless_http"] = stateless_http
+    mcp.run(**run_kwargs)
 
 
 if __name__ == "__main__":
