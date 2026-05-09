@@ -9,6 +9,7 @@ from httpx import Response
 
 from intervals_icu_mcp.tools.activity_analysis import get_power_vs_hr, get_time_at_hr
 from intervals_icu_mcp.tools.event_management import mark_event_done
+from intervals_icu_mcp.tools.events import get_calendar_events, get_upcoming_workouts
 from intervals_icu_mcp.tools.routes import (
     compare_route_similarity,
     get_route,
@@ -147,6 +148,70 @@ class TestMarkEventDone:
         body = json.loads(result)
         assert body["data"]["event_id"] == 42
         assert body["data"]["activity"] == activity
+
+
+class TestCalendarReadsLenientDates:
+    """Regression: get_calendar_events / get_upcoming_workouts crashed with
+    `ValueError: unconverted data remains: T00:00:00` because they used
+    strptime("%Y-%m-%d") on start_date_local, which the upstream now returns
+    as a full ISO-8601 datetime ('2026-05-09T00:00:00') for events created
+    after the date-validation fix.
+    """
+
+    async def test_get_calendar_events_handles_mixed_date_formats(self, mock_config, respx_mock):
+        from datetime import datetime, timedelta
+
+        today = datetime.now().date()
+        events = [
+            {
+                "id": 1,
+                # New-style: full datetime
+                "start_date_local": today.isoformat() + "T08:00:00",
+                "category": "WORKOUT",
+                "name": "New-style event",
+                "type": "Ride",
+            },
+            {
+                "id": 2,
+                # Old-style: date-only
+                "start_date_local": (today + timedelta(days=1)).isoformat(),
+                "category": "WORKOUT",
+                "name": "Old-style event",
+                "type": "Ride",
+            },
+        ]
+        respx_mock.get("/athlete/i123456/events").mock(return_value=Response(200, json=events))
+        result = await get_calendar_events(days_ahead=7, days_back=0, ctx=_ctx(mock_config))
+        body = json.loads(result)
+        # Both events should be present (no exception from datetime parsing).
+        assert "data" in body
+        assert body["data"]["summary"]["total_events"] == 2
+        # Events grouped by normalized 'YYYY-MM-DD' so the new-style event
+        # appears under the date string, not the full datetime.
+        days = body["data"]["events_by_date"]
+        today_str = today.isoformat()
+        assert today_str in days
+        assert any(e.get("relative_timing") == "today" for e in days[today_str])
+
+    async def test_get_upcoming_workouts_handles_full_datetime(self, mock_config, respx_mock):
+        from datetime import datetime, timedelta
+
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        events = [
+            {
+                "id": 5,
+                "start_date_local": tomorrow + "T06:00:00",
+                "category": "WORKOUT",
+                "name": "Threshold intervals",
+                "type": "Ride",
+            },
+        ]
+        respx_mock.get("/athlete/i123456/events").mock(return_value=Response(200, json=events))
+        result = await get_upcoming_workouts(limit=10, ctx=_ctx(mock_config))
+        body = json.loads(result)
+        # No exception; tomorrow's workout is returned with relative_timing="tomorrow"
+        assert body["data"]["count"] == 1
+        assert body["data"]["workouts"][0]["relative_timing"] == "tomorrow"
 
 
 class TestActivitySummaryDefensive:
