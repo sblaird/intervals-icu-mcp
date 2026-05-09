@@ -1,9 +1,10 @@
 """Async HTTP client for Intervals.icu API."""
 
+import logging
 from typing import Any
 
 import httpx
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from .auth import ICUConfig
 from .models import (
@@ -26,6 +27,8 @@ from .models import (
     Wellness,
     Workout,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ICUAPIError(Exception):
@@ -118,11 +121,20 @@ class ICUClient:
             return response
 
         except httpx.HTTPStatusError as e:
+            body = e.response.text[:500] if e.response.text else ""
+            logger.warning(
+                "ICU API HTTP %s on %s %s | body=%s",
+                e.response.status_code,
+                method,
+                endpoint,
+                body,
+            )
             raise ICUAPIError(
-                f"HTTP {e.response.status_code}: {e.response.text}",
+                f"HTTP {e.response.status_code}: {body}",
                 e.response.status_code,
             ) from e
         except httpx.RequestError as e:
+            logger.warning("ICU API request failed on %s %s: %s", method, endpoint, e)
             raise ICUAPIError(f"Request failed: {str(e)}") from e
 
     # ==================== Athlete Endpoints ====================
@@ -169,10 +181,25 @@ class ICUClient:
             params["newest"] = newest
 
         response = await self._request("GET", f"/athlete/{athlete_id}/activities", params=params)
-        adapter = TypeAdapter(list[ActivitySummary])
-        activities = adapter.validate_python(response.json())
-
-        # Limit results
+        # Parse per-item so one bad entry from upstream doesn't fail the whole list.
+        # The model now allows missing/extra fields, but we still log dropped items.
+        raw = response.json()
+        if not isinstance(raw, list):
+            raise ICUAPIError(f"Expected list, got {type(raw).__name__}: {raw!r:.200}")
+        activities: list[ActivitySummary] = []
+        skipped = 0
+        for item in raw:
+            try:
+                activities.append(ActivitySummary.model_validate(item))
+            except ValidationError as exc:
+                skipped += 1
+                logger.warning(
+                    "skipping unparseable activity: %s | item keys=%s",
+                    exc,
+                    list(item.keys()) if isinstance(item, dict) else "<not-dict>",
+                )
+        if skipped:
+            logger.info("get_activities: parsed %d, skipped %d", len(activities), skipped)
         return activities[:limit]
 
     async def get_activity(self, athlete_id: str | None = None, activity_id: str = "") -> Activity:
@@ -757,6 +784,30 @@ class ICUClient:
         adapter = TypeAdapter(list[BestEffort])
         return adapter.validate_python(response.json())
 
+    async def get_power_vs_hr(self, activity_id: str) -> dict[str, Any]:
+        """Get power-vs-HR plot data for an activity (aerobic decoupling).
+
+        Args:
+            activity_id: Activity ID
+
+        Returns:
+            Raw plot data as a dict (not modeled — pass through to caller).
+        """
+        response = await self._request("GET", f"/activity/{activity_id}/power-vs-hr")
+        return response.json()
+
+    async def get_time_at_hr(self, activity_id: str) -> dict[str, Any]:
+        """Get time-at-HR distribution for an activity.
+
+        Args:
+            activity_id: Activity ID
+
+        Returns:
+            Raw plot data as a dict.
+        """
+        response = await self._request("GET", f"/activity/{activity_id}/time-at-hr")
+        return response.json()
+
     async def search_intervals(
         self,
         athlete_id: str | None = None,
@@ -1172,3 +1223,126 @@ class ICUClient:
             json={"start_date_local": new_date},
         )
         return Event(**response.json())
+
+    async def mark_event_done(
+        self,
+        event_id: int,
+        athlete_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Mark a planned event as done by creating a manual matching activity.
+
+        Args:
+            event_id: Planned event ID to mark done
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Raw activity dict the server created.
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request("POST", f"/athlete/{athlete_id}/events/{event_id}/mark-done")
+        return response.json()
+
+    # ==================== Weather ====================
+
+    async def get_weather_forecast(self, athlete_id: str | None = None) -> dict[str, Any]:
+        """Get weather forecast for the athlete's planned events.
+
+        Args:
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Raw forecast dict (WeatherDTO).
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request("GET", f"/athlete/{athlete_id}/weather-forecast")
+        return response.json()
+
+    async def get_activity_weather(
+        self,
+        activity_id: str,
+        start_index: int | None = None,
+        end_index: int | None = None,
+    ) -> dict[str, Any]:
+        """Get weather summary recorded for an activity.
+
+        Args:
+            activity_id: Activity ID
+            start_index: Optional stream-index start for partial windows
+            end_index: Optional stream-index end for partial windows
+
+        Returns:
+            Raw weather summary dict.
+        """
+        params: dict[str, Any] = {}
+        if start_index is not None:
+            params["start_index"] = start_index
+        if end_index is not None:
+            params["end_index"] = end_index
+        response = await self._request(
+            "GET",
+            f"/activity/{activity_id}/weather-summary",
+            params=params if params else None,
+        )
+        return response.json()
+
+    # ==================== Routes ====================
+
+    async def list_routes(self, athlete_id: str | None = None) -> list[dict[str, Any]]:
+        """List all routes for an athlete (path data NOT included).
+
+        Args:
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            List of route summaries with activity counts.
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request("GET", f"/athlete/{athlete_id}/routes")
+        data = response.json()
+        return data if isinstance(data, list) else []
+
+    async def get_route(
+        self,
+        route_id: int,
+        athlete_id: str | None = None,
+        include_path: bool = False,
+    ) -> dict[str, Any]:
+        """Get a single route. By default the path/latlngs are NOT included.
+
+        Args:
+            route_id: Route ID
+            athlete_id: Athlete ID (uses config default if not provided)
+            include_path: If True, response includes the latlng path (large payload)
+
+        Returns:
+            Raw route dict.
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        params: dict[str, Any] | None = {"includePath": "true"} if include_path else None
+        response = await self._request(
+            "GET", f"/athlete/{athlete_id}/routes/{route_id}", params=params
+        )
+        return response.json()
+
+    async def get_route_similarity(
+        self,
+        route_id: int,
+        other_route_id: int,
+        athlete_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Compute similarity between two of the athlete's routes.
+
+        Args:
+            route_id: First route ID
+            other_route_id: Second route ID to compare against
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Raw RouteSimilarity dict (includes both routes' paths).
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request(
+            "GET",
+            f"/athlete/{athlete_id}/routes/{route_id}/similarity/{other_route_id}",
+        )
+        return response.json()

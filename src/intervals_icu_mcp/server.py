@@ -37,6 +37,8 @@ from .tools.activity_analysis import (
     get_hr_histogram,
     get_pace_histogram,
     get_power_histogram,
+    get_power_vs_hr,
+    get_time_at_hr,
     search_intervals,
 )
 from .tools.athlete import get_athlete_profile, get_fitness_summary
@@ -47,6 +49,7 @@ from .tools.event_management import (
     create_event,
     delete_event,
     duplicate_event,
+    mark_event_done,
     update_event,
 )
 from .tools.events import get_calendar_events, get_event, get_upcoming_workouts
@@ -59,6 +62,7 @@ from .tools.gear import (
     update_gear_reminder,
 )
 from .tools.performance import get_power_curves
+from .tools.routes import compare_route_similarity, get_route, list_routes
 from .tools.sport_settings import (
     apply_sport_settings,
     create_sport_settings,
@@ -66,6 +70,7 @@ from .tools.sport_settings import (
     get_sport_settings,
     update_sport_settings,
 )
+from .tools.weather import get_activity_weather, get_weather_forecast
 from .tools.wellness import get_wellness_data, get_wellness_for_date, update_wellness
 from .tools.workout_library import get_workout_library, get_workouts_in_folder
 
@@ -90,6 +95,8 @@ mcp.tool()(get_power_histogram)
 mcp.tool()(get_hr_histogram)
 mcp.tool()(get_pace_histogram)
 mcp.tool()(get_gap_histogram)
+mcp.tool()(get_power_vs_hr)
+mcp.tool()(get_time_at_hr)
 
 # Register athlete tools
 mcp.tool()(get_athlete_profile)
@@ -110,6 +117,7 @@ mcp.tool()(delete_event)
 mcp.tool()(bulk_create_events)
 mcp.tool()(bulk_delete_events)
 mcp.tool()(duplicate_event)
+mcp.tool()(mark_event_done)
 
 # Register performance/curve tools
 mcp.tool()(get_power_curves)
@@ -134,6 +142,15 @@ mcp.tool()(update_sport_settings)
 mcp.tool()(apply_sport_settings)
 mcp.tool()(create_sport_settings)
 mcp.tool()(delete_sport_settings)
+
+# Register weather tools
+mcp.tool()(get_weather_forecast)
+mcp.tool()(get_activity_weather)
+
+# Register route tools
+mcp.tool()(list_routes)
+mcp.tool()(get_route)
+mcp.tool()(compare_route_similarity)
 
 
 # MCP Resources - Provide ongoing context

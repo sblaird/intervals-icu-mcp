@@ -57,10 +57,18 @@ class AthleteProfile(BaseModel):
 
 
 class ActivitySummary(BaseModel):
-    """Summary representation of an activity (for lists)."""
+    """Summary representation of an activity (for lists).
 
-    id: str
-    start_date_local: datetime
+    Fields are intentionally lenient: Intervals.icu's response includes
+    activities imported from many sources (Strava, Zwift, Garmin, manual)
+    and missing/odd values from any one entry shouldn't fail the whole
+    list. Unknown fields are ignored so upstream additions don't break us.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    start_date_local: datetime | None = None
     name: str | None = None
     type: str | None = None
     distance: float | None = None

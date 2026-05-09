@@ -643,3 +643,73 @@ async def get_gap_histogram(
         return ResponseBuilder.build_error_response(
             f"Unexpected error: {str(e)}", error_type="internal_error"
         )
+
+
+async def get_power_vs_hr(
+    activity_id: Annotated[str, "Activity ID"],
+    ctx: Context | None = None,
+) -> str:
+    """Get power-vs-HR plot data for an activity (aerobic decoupling signal).
+
+    The power-vs-HR plot is the simplest read on aerobic durability — for an
+    aerobic effort, HR drift relative to power across the workout indicates
+    how much fatigue accumulated. A clean plot stays linear; a drifting plot
+    diverges in the back half. Pair with `get_activity_streams` for a
+    second-by-second view if needed.
+
+    Args:
+        activity_id: Activity ID
+
+    Returns:
+        JSON string with the power-vs-HR plot payload.
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            plot: dict[str, Any] = await client.get_power_vs_hr(activity_id)
+            return ResponseBuilder.build_response(
+                data={"activity_id": activity_id, "plot": plot},
+                query_type="power_vs_hr",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )
+
+
+async def get_time_at_hr(
+    activity_id: Annotated[str, "Activity ID"],
+    ctx: Context | None = None,
+) -> str:
+    """Get time-at-HR distribution for an activity.
+
+    Returns time-spent at each heart rate bucket. More fine-grained than
+    `get_hr_histogram` for analyzing how much of a session was actually in
+    a target zone vs adjacent zones.
+
+    Args:
+        activity_id: Activity ID
+
+    Returns:
+        JSON string with the time-at-HR plot payload.
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            plot: dict[str, Any] = await client.get_time_at_hr(activity_id)
+            return ResponseBuilder.build_response(
+                data={"activity_id": activity_id, "plot": plot},
+                query_type="time_at_hr",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )

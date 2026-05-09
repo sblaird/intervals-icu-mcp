@@ -252,7 +252,9 @@ async def get_pace_curves(
             period_label = "90_days"
 
         async with ICUClient(config) as client:
-            pace_curve = await client.get_pace_curves(oldest=oldest, use_gap=use_gap, activity_type=activity_type)
+            pace_curve = await client.get_pace_curves(
+                oldest=oldest, use_gap=use_gap, activity_type=activity_type
+            )
 
             if not pace_curve.data or len(pace_curve.data) == 0:
                 return ResponseBuilder.build_response(

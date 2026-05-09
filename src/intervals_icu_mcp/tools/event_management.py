@@ -607,3 +607,39 @@ async def duplicate_event(
         return ResponseBuilder.build_error_response(
             f"Unexpected error: {str(e)}", error_type="internal_error"
         )
+
+
+async def mark_event_done(
+    event_id: Annotated[int, "Planned event ID to mark done"],
+    ctx: Context | None = None,
+) -> str:
+    """Mark a planned event as completed.
+
+    Intervals.icu creates a manual matching activity for the planned event
+    and marks the event done. Use this when an outdoor ride wasn't recorded
+    on a device (e.g., commute without head unit) or to log compliance for
+    a strength/mobility session that doesn't auto-import.
+
+    Args:
+        event_id: ID of the planned event
+
+    Returns:
+        JSON string with the created activity payload.
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            activity = await client.mark_event_done(event_id)
+            return ResponseBuilder.build_response(
+                data={"event_id": event_id, "activity": activity},
+                query_type="mark_event_done",
+                metadata={"message": f"Marked event {event_id} done"},
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )
