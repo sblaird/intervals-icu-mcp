@@ -218,6 +218,33 @@ class TestCalendarReadsLenientDates:
         assert body["data"]["workouts"][0]["id"] == 5
 
 
+class TestBulkDeleteEndpoint:
+    """Regression: bulk_delete was hitting DELETE /events/bulk, but the
+    upstream router matched /events/{id} first and tried to parse 'bulk'
+    as an int -> NumberFormatException 422. The correct endpoint is
+    PUT /events/bulk-delete with a body of [{id}, ...] DoomedEvent records.
+    """
+
+    async def test_uses_put_bulk_delete_with_doomed_event_body(self, mock_config, respx_mock):
+        from intervals_icu_mcp.client import ICUClient
+
+        captured: dict = {}
+
+        def handler(request):
+            captured["method"] = request.method
+            captured["url_path"] = request.url.path
+            captured["body"] = json.loads(request.content)
+            return Response(200, json={})
+
+        respx_mock.put("/athlete/i123456/events/bulk-delete").mock(side_effect=handler)
+        async with ICUClient(mock_config) as client:
+            await client.bulk_delete_events([100, 200, 300])
+
+        assert captured["method"] == "PUT"
+        assert captured["url_path"].endswith("/events/bulk-delete")
+        assert captured["body"] == [{"id": 100}, {"id": 200}, {"id": 300}]
+
+
 class TestActivitySummaryDefensive:
     """The lenient ActivitySummary should tolerate missing id / start_date_local
     and ignore unknown fields, so a single bad upstream entry can't poison the

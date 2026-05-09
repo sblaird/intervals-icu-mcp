@@ -37,10 +37,24 @@ class TestExpandRepeatBlocks:
         assert _expand_repeat_blocks(desc) == "2x\n- 20m 220w\n- 10m 150w"
 
     def test_full_workout_with_warmup_and_cooldown(self):
-        # Blanks INSIDE the 2x block (after "10m 150w") are dropped; blanks
-        # OUTSIDE (between sections like "Warm up" and "2x") are preserved.
+        # Blanks BETWEEN header and first step are dropped (parser-hostile).
+        # Blanks BEFORE a section break (block → 'Cool down') are restored
+        # so the visual separation survives.
         desc = "Warm up\n- 10m 50% FTP\n\n2x\n20m 220w\n10m 150w\n\nCool down\n- 5m 50% FTP"
-        expected = "Warm up\n- 10m 50% FTP\n\n2x\n- 20m 220w\n- 10m 150w\nCool down\n- 5m 50% FTP"
+        expected = "Warm up\n- 10m 50% FTP\n\n2x\n- 20m 220w\n- 10m 150w\n\nCool down\n- 5m 50% FTP"
+        assert _expand_repeat_blocks(desc) == expected
+
+    def test_section_break_blank_restored_when_block_exits(self):
+        # The user reported the blank line between the last step and
+        # "Cool down" was being collapsed. The expander now restores one
+        # blank when transitioning out of a block.
+        desc = "2x\n5m 250w\n2m 100w\n\nCool down\n- 5m easy"
+        expected = "2x\n- 5m 250w\n- 2m 100w\n\nCool down\n- 5m easy"
+        assert _expand_repeat_blocks(desc) == expected
+
+    def test_back_to_back_repeat_blocks_keep_separator(self):
+        desc = "2x\n5m 250w\n\n3x\n2m 300w"
+        expected = "2x\n- 5m 250w\n\n3x\n- 2m 300w"
         assert _expand_repeat_blocks(desc) == expected
 
     def test_non_numeric_line_exits_block(self):

@@ -49,17 +49,23 @@ def _expand_repeat_blocks(description: str) -> str:
     blanks.
 
     Algorithm: when we see a line matching `^\\d+x$`, treat the following
-    non-blank lines as steps — DROP blank lines (they break parsing), prefix
-    with '- ' if missing, and exit the block at the first non-numeric line
-    (presumed section header like 'Cool down'). Lines already prefixed are
-    left alone (idempotent).
+    non-blank lines as steps — DROP blank lines while inside the block,
+    prefix with '- ' if missing, and exit the block at the first
+    non-numeric line. When a held blank exists at the moment we exit
+    (block → next section like 'Cool down'), restore one blank line so the
+    visual section break survives. Lines already prefixed are left alone
+    (idempotent).
     """
     lines = description.split("\n")
     out: list[str] = []
     in_repeat = False
+    held_blank = False  # we dropped at least one blank inside the current block
     for line in lines:
         stripped = line.strip()
         if _REPEAT_HEADER_RE.match(stripped):
+            if held_blank:
+                out.append("")
+                held_blank = False
             in_repeat = True
             out.append(line)
             continue
@@ -68,18 +74,24 @@ def _expand_repeat_blocks(description: str) -> str:
             continue
         # Inside a repeat block.
         if not stripped:
-            # Drop blank lines — they break the parser's block detection.
+            held_blank = True
             continue
         if _DASH_PREFIX_RE.match(line):
+            held_blank = False
             out.append(line)
             continue
         # Numeric content → looks like a step (e.g. "20m 220w", "10min 80% FTP").
         if re.search(r"\d", stripped):
+            held_blank = False
             indent_match = _LEADING_WS_RE.match(line)
             indent = indent_match.group(1) if indent_match else ""
             out.append(f"{indent}- {stripped}")
             continue
-        # Non-numeric text (e.g. "Cool down") → exit the repeat block, leave as-is.
+        # Non-numeric (e.g. "Cool down") → exit the block. Restore the
+        # held blank so the section break survives.
+        if held_blank:
+            out.append("")
+            held_blank = False
         in_repeat = False
         out.append(line)
     return "\n".join(out)

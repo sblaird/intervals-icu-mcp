@@ -1187,18 +1187,30 @@ class ICUClient:
     ) -> dict[str, Any]:
         """Delete multiple calendar events in a single request.
 
+        Why this is PUT /events/bulk-delete and not DELETE /events/bulk:
+        the upstream router matches /events/{id} before /events/bulk, so
+        DELETE /events/bulk hits the single-event handler with id="bulk"
+        and returns NumberFormatException. The actual bulk-delete endpoint
+        is PUT /events/bulk-delete with a body of [{id}, ...] DoomedEvent
+        records.
+
         Args:
             event_ids: List of event IDs to delete
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            Result of bulk deletion
+            Result of bulk deletion (raw upstream response)
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        body = [{"id": eid} for eid in event_ids]
         response = await self._request(
-            "DELETE", f"/athlete/{athlete_id}/events/bulk", json={"ids": event_ids}
+            "PUT", f"/athlete/{athlete_id}/events/bulk-delete", json=body
         )
-        return response.json()
+        # Some bulk-delete responses are empty; tolerate that.
+        try:
+            return response.json()
+        except ValueError:
+            return {"deleted": event_ids}
 
     async def duplicate_event(
         self,
