@@ -8,6 +8,13 @@ from fastmcp import Context
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..response_builder import ResponseBuilder
+from ..subjective_scales import (
+    FEEL_SCALE_NOTE,
+    parse_feel_label,
+)
+from ..subjective_scales import (
+    feel_label as _format_feel_label,
+)
 
 
 async def get_recent_activities(
@@ -194,10 +201,16 @@ async def get_activity_details(
             if training_metrics:
                 activity_data["training"] = training_metrics
 
-            # Subjective metrics
+            # Subjective metrics. ``feel`` is on intervals.icu's inverted
+            # 1-5 scale (1=best, 5=worst); always emit a label so downstream
+            # consumers can't misread the integer as Garmin's display value.
             subjective: dict[str, Any] = {}
             if activity.feel:
                 subjective["feel"] = activity.feel
+                label = _format_feel_label(activity.feel)
+                if label:
+                    subjective["feel_label"] = label
+                subjective["feel_scale_note"] = FEEL_SCALE_NOTE
             if activity.perceived_exertion:
                 subjective["rpe"] = activity.perceived_exertion
             if subjective:
@@ -305,7 +318,18 @@ async def update_activity(
     activity_type: Annotated[str | None, "Updated activity type (e.g., Ride, Run, Swim)"] = None,
     trainer: Annotated[bool | None, "Mark as trainer/indoor workout"] = None,
     commute: Annotated[bool | None, "Mark as commute"] = None,
-    feel: Annotated[int | None, "How you felt (1-5 scale)"] = None,
+    feel: Annotated[
+        int | None,
+        "How you felt on intervals.icu's 1-5 scale: 1=Very Strong (best), "
+        "5=Very Weak (worst). Note: this is INVERSE of Garmin's display scale.",
+    ] = None,
+    feel_label: Annotated[
+        str | None,
+        "Direction-safe alternative to `feel`. Accepts 'very_strong', 'strong', "
+        "'normal', 'weak', 'very_weak' (case-insensitive). Mapped to the correct "
+        "intervals.icu integer internally. If both `feel` and `feel_label` are "
+        "given, `feel_label` wins.",
+    ] = None,
     perceived_exertion: Annotated[int | None, "RPE rating (1-10 scale)"] = None,
     ctx: Context | None = None,
 ) -> str:
@@ -321,7 +345,10 @@ async def update_activity(
         activity_type: New activity type (e.g., "Ride", "Run", "Swim")
         trainer: Whether this was an indoor trainer workout
         commute: Whether this was a commute
-        feel: Subjective feel rating (1=terrible, 5=great)
+        feel: Subjective feel rating on intervals.icu's scale — 1=Very Strong
+            (best) through 5=Very Weak (worst). Inverse of Garmin's display.
+            Prefer `feel_label` to avoid direction confusion.
+        feel_label: Label string ('very_strong' .. 'very_weak'). Wins over `feel`.
         perceived_exertion: RPE rating (1-10 scale)
 
     Returns:
@@ -344,7 +371,23 @@ async def update_activity(
             activity_data["trainer"] = trainer
         if commute is not None:
             activity_data["commute"] = commute
-        if feel is not None:
+        # Label wins over int so callers who pass both don't get a silent
+        # direction mismatch.
+        if feel_label is not None:
+            mapped = parse_feel_label(feel_label)
+            if mapped is None:
+                return ResponseBuilder.build_error_response(
+                    f"Unknown feel_label '{feel_label}'. Accepted: "
+                    "very_strong, strong, normal, weak, very_weak.",
+                    error_type="validation_error",
+                )
+            activity_data["feel"] = mapped
+        elif feel is not None:
+            if not 1 <= feel <= 5:
+                return ResponseBuilder.build_error_response(
+                    f"feel must be 1-5 (1=Very Strong, 5=Very Weak); got {feel}.",
+                    error_type="validation_error",
+                )
             activity_data["feel"] = feel
         if perceived_exertion is not None:
             activity_data["perceived_exertion"] = perceived_exertion
@@ -373,6 +416,10 @@ async def update_activity(
                 result_data["commute"] = activity.commute
             if activity.feel is not None:
                 result_data["feel"] = activity.feel
+                label = _format_feel_label(activity.feel)
+                if label:
+                    result_data["feel_label"] = label
+                result_data["feel_scale_note"] = FEEL_SCALE_NOTE
             if activity.perceived_exertion is not None:
                 result_data["rpe"] = activity.perceived_exertion
 

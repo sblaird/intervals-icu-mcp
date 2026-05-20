@@ -8,6 +8,21 @@ from fastmcp import Context
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..response_builder import ResponseBuilder
+from ..subjective_scales import WELLNESS_SCALE_NOTE, wellness_label
+
+
+def _emit_subjective(target: dict[str, Any], field: str, value: int | None) -> None:
+    """Set a wellness subjective field with its label.
+
+    intervals.icu stores wellness ratings on an inverted scale (1=best). Always
+    emit a label so callers and downstream LLMs can't misread the integer.
+    """
+    if not value:
+        return
+    target[field] = value
+    label = wellness_label(field, value)
+    if label:
+        target[f"{field}_label"] = label
 
 
 async def get_wellness_data(
@@ -77,19 +92,16 @@ async def get_wellness_data(
                 if heart:
                     day_data["heart"] = heart
 
-                # Subjective metrics
+                # Subjective metrics — intervals.icu's scale is INVERTED
+                # (1=best). Labels prevent silent misreads downstream.
                 subjective: dict[str, Any] = {}
-                if record.fatigue:
-                    subjective["fatigue"] = record.fatigue
-                if record.soreness:
-                    subjective["soreness"] = record.soreness
-                if record.stress:
-                    subjective["stress"] = record.stress
-                if record.mood:
-                    subjective["mood"] = record.mood
-                if record.motivation:
-                    subjective["motivation"] = record.motivation
+                _emit_subjective(subjective, "fatigue", record.fatigue)
+                _emit_subjective(subjective, "soreness", record.soreness)
+                _emit_subjective(subjective, "stress", record.stress)
+                _emit_subjective(subjective, "mood", record.mood)
+                _emit_subjective(subjective, "motivation", record.motivation)
                 if subjective:
+                    subjective["scale_note"] = WELLNESS_SCALE_NOTE
                     day_data["subjective"] = subjective
 
                 # Body metrics
@@ -244,23 +256,21 @@ async def get_wellness_for_date(
             if heart:
                 wellness_data["heart"] = heart
 
-            # Subjective feelings
+            # Subjective feelings — intervals.icu's scale is INVERTED
+            # (1=best). Labels prevent silent misreads downstream.
             subjective: dict[str, Any] = {}
-            if wellness.fatigue:
-                subjective["fatigue"] = wellness.fatigue
-            if wellness.soreness:
-                subjective["soreness"] = wellness.soreness
-            if wellness.stress:
-                subjective["stress"] = wellness.stress
-            if wellness.mood:
-                subjective["mood"] = wellness.mood
-            if wellness.motivation:
-                subjective["motivation"] = wellness.motivation
+            _emit_subjective(subjective, "fatigue", wellness.fatigue)
+            _emit_subjective(subjective, "soreness", wellness.soreness)
+            _emit_subjective(subjective, "stress", wellness.stress)
+            _emit_subjective(subjective, "mood", wellness.mood)
+            _emit_subjective(subjective, "motivation", wellness.motivation)
+            # readiness is a 0-100 score where higher=better (NOT inverted).
             if wellness.readiness:
                 subjective["readiness"] = round(wellness.readiness, 0)
             if wellness.injury:
                 subjective["injury"] = wellness.injury
             if subjective:
+                subjective["scale_note"] = WELLNESS_SCALE_NOTE
                 wellness_data["subjective"] = subjective
 
             # Body metrics
@@ -343,13 +353,26 @@ async def update_wellness(
     resting_hr: Annotated[int | None, "Resting heart rate in bpm"] = None,
     hrv: Annotated[float | None, "HRV (rMSSD) value"] = None,
     sleep_secs: Annotated[int | None, "Sleep duration in seconds"] = None,
-    sleep_quality: Annotated[int | None, "Sleep quality (1-5 scale)"] = None,
-    fatigue: Annotated[int | None, "Fatigue level (1-5 scale)"] = None,
-    soreness: Annotated[int | None, "Soreness level (1-5 scale)"] = None,
-    stress: Annotated[int | None, "Stress level (1-5 scale)"] = None,
-    mood: Annotated[int | None, "Mood level (1-5 scale)"] = None,
-    motivation: Annotated[int | None, "Motivation level (1-5 scale)"] = None,
-    readiness: Annotated[float | None, "Readiness score (0-100)"] = None,
+    sleep_quality: Annotated[
+        int | None, "Sleep quality 1-5 (higher = better, synced from Garmin)."
+    ] = None,
+    fatigue: Annotated[
+        int | None, "Fatigue 1-4 on intervals.icu's scale: 1=None (best), 4=Severe (worst)."
+    ] = None,
+    soreness: Annotated[
+        int | None, "Soreness 1-4 on intervals.icu's scale: 1=None (best), 4=Severe (worst)."
+    ] = None,
+    stress: Annotated[
+        int | None, "Stress 1-4 on intervals.icu's scale: 1=None (best), 4=Severe (worst)."
+    ] = None,
+    mood: Annotated[
+        int | None, "Mood 1-4 on intervals.icu's scale: 1=Great (best), 4=Terrible (worst)."
+    ] = None,
+    motivation: Annotated[
+        int | None,
+        "Motivation 1-4 on intervals.icu's scale: 1=Great (best), 4=Terrible (worst).",
+    ] = None,
+    readiness: Annotated[float | None, "Readiness score 0-100 (higher = better)."] = None,
     comments: Annotated[str | None, "Comments or notes"] = None,
     ctx: Context | None = None,
 ) -> str:
@@ -358,8 +381,14 @@ async def update_wellness(
     Updates wellness metrics for the specified date. If a record doesn't exist for
     that date, it will be created. Only provide the fields you want to update.
 
-    All subjective metrics (fatigue, soreness, stress, mood, motivation) use a 1-5 scale:
-    1 = Very low/poor, 3 = Normal/moderate, 5 = Very high/excellent
+    IMPORTANT — intervals.icu's wellness scale is INVERTED from intuition.
+    For fatigue, soreness, stress, mood, and motivation: **1 is always best.**
+
+      fatigue / soreness / stress: 1=None, 2=Mild, 3=Moderate, 4=Severe
+      mood / motivation:           1=Great, 2=Good, 3=Poor, 4=Terrible
+
+    sleep_quality (1-5) and readiness (0-100) are NOT inverted —
+    higher = better on those two.
 
     Args:
         date: Date in ISO-8601 format (YYYY-MM-DD)
@@ -367,13 +396,13 @@ async def update_wellness(
         resting_hr: Resting heart rate in beats per minute
         hrv: Heart rate variability (rMSSD) in milliseconds
         sleep_secs: Sleep duration in seconds
-        sleep_quality: Sleep quality rating (1-5)
-        fatigue: Fatigue level (1-5)
-        soreness: Muscle soreness level (1-5)
-        stress: Stress level (1-5)
-        mood: Mood rating (1-5)
-        motivation: Motivation level (1-5)
-        readiness: Overall readiness score (0-100)
+        sleep_quality: Sleep quality 1-5 (higher = better)
+        fatigue: Fatigue 1-4 (1=None, 4=Severe)
+        soreness: Muscle soreness 1-4 (1=None, 4=Severe)
+        stress: Stress 1-4 (1=None, 4=Severe)
+        mood: Mood 1-4 (1=Great, 4=Terrible)
+        motivation: Motivation 1-4 (1=Great, 4=Terrible)
+        readiness: Overall readiness score 0-100 (higher = better)
         comments: Any notes or comments about the day
 
     Returns:
@@ -441,16 +470,26 @@ async def update_wellness(
                 result_data["sleep_duration_seconds"] = wellness.sleep_secs
             if wellness.sleep_quality:
                 result_data["sleep_quality"] = wellness.sleep_quality
-            if wellness.fatigue:
-                result_data["fatigue"] = wellness.fatigue
-            if wellness.soreness:
-                result_data["soreness"] = wellness.soreness
-            if wellness.stress:
-                result_data["stress"] = wellness.stress
-            if wellness.mood:
-                result_data["mood"] = wellness.mood
-            if wellness.motivation:
-                result_data["motivation"] = wellness.motivation
+            # Emit subjective fields with labels so the caller can immediately
+            # verify their write landed on the correct end of intervals.icu's
+            # inverted scale.
+            had_subjective = any(
+                v is not None
+                for v in (
+                    wellness.fatigue,
+                    wellness.soreness,
+                    wellness.stress,
+                    wellness.mood,
+                    wellness.motivation,
+                )
+            )
+            _emit_subjective(result_data, "fatigue", wellness.fatigue)
+            _emit_subjective(result_data, "soreness", wellness.soreness)
+            _emit_subjective(result_data, "stress", wellness.stress)
+            _emit_subjective(result_data, "mood", wellness.mood)
+            _emit_subjective(result_data, "motivation", wellness.motivation)
+            if had_subjective:
+                result_data["scale_note"] = WELLNESS_SCALE_NOTE
             if wellness.readiness:
                 result_data["readiness"] = round(wellness.readiness, 0)
             if wellness.comments:
