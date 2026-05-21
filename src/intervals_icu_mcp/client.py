@@ -814,6 +814,10 @@ class ICUClient:
         interval_type: str | None = None,
         min_duration: int | None = None,
         max_duration: int | None = None,
+        min_intensity: int | None = None,
+        max_intensity: int | None = None,
+        min_reps: int | None = None,
+        max_reps: int | None = None,
         limit: int = 30,
         activity_type: str = "Ride",
     ) -> list[dict[str, Any]]:
@@ -824,6 +828,10 @@ class ICUClient:
             interval_type: Type of interval to search for
             min_duration: Minimum duration in seconds (sent as `minSecs`)
             max_duration: Maximum duration in seconds (sent as `maxSecs`)
+            min_intensity: Minimum intensity as % of threshold (sent as `minIntensity`)
+            max_intensity: Maximum intensity as % of threshold (sent as `maxIntensity`)
+            min_reps: Minimum repetitions in the interval block
+            max_reps: Maximum repetitions in the interval block
             limit: Maximum number of results to return
             activity_type: ActivityType filter required by the API (e.g., "Ride", "Run")
 
@@ -831,14 +839,24 @@ class ICUClient:
             List of matching intervals with activity context
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
-        params: dict[str, Any] = {"type": activity_type, "limit": limit}
+
+        # The API requires minSecs/maxSecs/minIntensity/maxIntensity on every call (422
+        # otherwise). Fill in wide-open defaults when the caller doesn't constrain them.
+        params: dict[str, Any] = {
+            "type": activity_type,
+            "limit": limit,
+            "minSecs": min_duration if min_duration is not None else 0,
+            "maxSecs": max_duration if max_duration is not None else 86400,
+            "minIntensity": min_intensity if min_intensity is not None else 0,
+            "maxIntensity": max_intensity if max_intensity is not None else 1000,
+        }
 
         if interval_type:
             params["intervalType"] = interval_type
-        if min_duration:
-            params["minSecs"] = min_duration
-        if max_duration:
-            params["maxSecs"] = max_duration
+        if min_reps is not None:
+            params["minReps"] = min_reps
+        if max_reps is not None:
+            params["maxReps"] = max_reps
 
         response = await self._request(
             "GET", f"/athlete/{athlete_id}/activities/interval-search", params=params

@@ -308,6 +308,16 @@ async def search_intervals(
     interval_type: Annotated[str | None, "Type of interval to search for"] = None,
     min_duration: Annotated[int | None, "Minimum duration in seconds"] = None,
     max_duration: Annotated[int | None, "Maximum duration in seconds"] = None,
+    min_intensity: Annotated[
+        int | None,
+        "Minimum intensity as % of threshold (e.g., 90 = 90% of FTP/FTHR)",
+    ] = None,
+    max_intensity: Annotated[
+        int | None,
+        "Maximum intensity as % of threshold (e.g., 110 = 110% of FTP/FTHR)",
+    ] = None,
+    min_reps: Annotated[int | None, "Minimum repetitions in interval block"] = None,
+    max_reps: Annotated[int | None, "Maximum repetitions in interval block"] = None,
     limit: Annotated[int, "Maximum number of results to return"] = 30,
     activity_type: Annotated[
         str,
@@ -325,6 +335,10 @@ async def search_intervals(
         interval_type: Type of interval (e.g., "WORK", "THRESHOLD", "VO2MAX")
         min_duration: Minimum interval duration in seconds
         max_duration: Maximum interval duration in seconds
+        min_intensity: Minimum intensity as % of threshold (FTP for power, FTHR for HR)
+        max_intensity: Maximum intensity as % of threshold
+        min_reps: Minimum repetitions in the interval block
+        max_reps: Maximum repetitions in the interval block
         limit: Maximum number of results to return (default 30)
 
     Returns:
@@ -339,6 +353,10 @@ async def search_intervals(
                 interval_type=interval_type,
                 min_duration=min_duration,
                 max_duration=max_duration,
+                min_intensity=min_intensity,
+                max_intensity=max_intensity,
+                min_reps=min_reps,
+                max_reps=max_reps,
                 limit=limit,
                 activity_type=activity_type,
             )
@@ -351,6 +369,10 @@ async def search_intervals(
                     search_criteria.append(f"min_duration={min_duration}s")
                 if max_duration:
                     search_criteria.append(f"max_duration={max_duration}s")
+                if min_intensity is not None:
+                    search_criteria.append(f"min_intensity={min_intensity}%")
+                if max_intensity is not None:
+                    search_criteria.append(f"max_intensity={max_intensity}%")
 
                 criteria_str = ", ".join(search_criteria) if search_criteria else "your criteria"
 
@@ -366,6 +388,10 @@ async def search_intervals(
                     "interval_type": interval_type,
                     "min_duration_seconds": min_duration,
                     "max_duration_seconds": max_duration,
+                    "min_intensity_pct": min_intensity,
+                    "max_intensity_pct": max_intensity,
+                    "min_reps": min_reps,
+                    "max_reps": max_reps,
                 },
             }
 
