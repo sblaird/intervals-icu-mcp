@@ -12,7 +12,7 @@ These tests pin the wide-open defaults so the regression can't return silently
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from httpx import Response
 
@@ -21,7 +21,7 @@ from intervals_icu_mcp.tools.activity_analysis import search_intervals
 
 def _ctx(mock_config) -> MagicMock:
     ctx = MagicMock()
-    ctx.get_state.return_value = mock_config
+    ctx.get_state = AsyncMock(return_value=mock_config)
     return ctx
 
 

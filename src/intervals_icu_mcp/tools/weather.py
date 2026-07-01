@@ -27,7 +27,7 @@ async def get_weather_forecast(
         JSON string with the forecast payload.
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -69,7 +69,7 @@ async def get_activity_weather(
         JSON string with the activity weather summary.
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
