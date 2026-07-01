@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import AliasChoices, Field
 
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
@@ -122,7 +123,16 @@ async def create_event(
     name: Annotated[str, "Event name"],
     category: Annotated[str, "Event category: WORKOUT, NOTE, RACE, or GOAL"],
     description: Annotated[str | None, f"Optional. {_DESCRIPTION_HELP}"] = None,
-    event_type: Annotated[str | None, "Activity type (e.g., Ride, Run, Swim)"] = None,
+    event_type: Annotated[
+        str | None,
+        Field(
+            # Accept the legacy `type` key as an alias: older project instructions
+            # documented this param as `type`, so Claude may call create_event(
+            # type="Ride"). Advertised property stays `event_type` (additive).
+            validation_alias=AliasChoices("event_type", "type"),
+            description="Activity type (e.g., Ride, Run, Swim). Also accepts alias 'type'.",
+        ),
+    ] = None,
     duration_seconds: Annotated[
         int | None, f"Planned duration in seconds.{_LOAD_OVERRIDE_NOTE}"
     ] = None,
