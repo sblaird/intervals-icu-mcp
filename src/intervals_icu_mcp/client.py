@@ -215,7 +215,7 @@ class ICUClient:
             raise ICUAPIError(f"Expected list, got {type(raw).__name__}: {raw!r:.200}")
         activities: list[ActivitySummary] = []
         skipped = 0
-        for item in raw:
+        for item in cast("list[Any]", raw):
             try:
                 activities.append(ActivitySummary.model_validate(item))
             except ValidationError as exc:
@@ -223,7 +223,9 @@ class ICUClient:
                 logger.warning(
                     "skipping unparseable activity: %s | item keys=%s",
                     exc,
-                    list(item.keys()) if isinstance(item, dict) else "<not-dict>",
+                    list(cast("dict[str, Any]", item).keys())
+                    if isinstance(item, dict)
+                    else "<not-dict>",
                 )
         if skipped:
             logger.info("get_activities: parsed %d, skipped %d", len(activities), skipped)
@@ -746,8 +748,12 @@ class ICUClient:
         payload = response.json()
         # The endpoint returns an activity wrapper {"id":..., "icu_intervals":[...], ...}
         # rather than a bare list of intervals.
+        intervals_list: Any
         if isinstance(payload, dict):
-            intervals_list = payload.get("icu_intervals") or payload.get("intervals") or []
+            payload_dict = cast("dict[str, Any]", payload)
+            intervals_list = (
+                payload_dict.get("icu_intervals") or payload_dict.get("intervals") or []
+            )
         else:
             intervals_list = payload
         adapter = TypeAdapter(list[Interval])
@@ -778,11 +784,12 @@ class ICUClient:
         # ActivityStreams expects per-stream-name fields, so reshape.
         if isinstance(payload, list):
             streams_dict: dict[str, Any] = {}
-            for entry in payload:
+            for entry in cast("list[Any]", payload):
                 if not isinstance(entry, dict):
                     continue
-                name = entry.get("type")
-                data = entry.get("data")
+                entry_dict = cast("dict[str, Any]", entry)
+                name = entry_dict.get("type")
+                data = entry_dict.get("data")
                 if name and data is not None:
                     streams_dict[name] = data
             return _build_streams_resilient(streams_dict)
@@ -1358,7 +1365,7 @@ class ICUClient:
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request("GET", f"/athlete/{athlete_id}/routes")
         data = response.json()
-        return data if isinstance(data, list) else []
+        return cast("list[dict[str, Any]]", data) if isinstance(data, list) else []
 
     async def get_route(
         self,

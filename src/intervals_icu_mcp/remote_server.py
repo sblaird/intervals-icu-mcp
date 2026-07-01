@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
-from fastmcp.server.auth.auth import ClientRegistrationOptions, RevocationOptions
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -55,34 +56,37 @@ def main() -> None:
     resource_url = f"{server_url}{transport_path}"
 
     mcp = server_module.mcp
-    auth_kwargs = dict(
-        base_url=server_url,
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True,
-            valid_scopes=["mcp"],
-            default_scopes=["mcp"],
-        ),
-        revocation_options=RevocationOptions(enabled=True),
-        required_scopes=["mcp"],
+    client_registration_options = ClientRegistrationOptions(
+        enabled=True,
+        valid_scopes=["mcp"],
+        default_scopes=["mcp"],
     )
+    revocation_options = RevocationOptions(enabled=True)
     token_store = os.getenv("OAUTH_TOKEN_STORE", "memory").lower()
     if token_store == "firestore":
         mcp.auth = FirestoreOAuthProvider(
+            base_url=server_url,
+            client_registration_options=client_registration_options,
+            revocation_options=revocation_options,
+            required_scopes=["mcp"],
             project=os.getenv("OAUTH_FIRESTORE_PROJECT") or None,
             collection=os.getenv("OAUTH_FIRESTORE_COLLECTION", "oauth_state"),
             document_id=os.getenv("OAUTH_FIRESTORE_DOCUMENT", "singleton"),
-            **auth_kwargs,
         )
         logger.info("Using Firestore-backed OAuth token store")
     else:
-        mcp.auth = InMemoryOAuthProvider(**auth_kwargs)
+        mcp.auth = InMemoryOAuthProvider(
+            base_url=server_url,
+            client_registration_options=client_registration_options,
+            revocation_options=revocation_options,
+            required_scopes=["mcp"],
+        )
         logger.info("Using in-memory OAuth token store (state will not survive revisions)")
 
     # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
     # to /.well-known/oauth-protected-resource (no suffix), but only the
     # per-resource path is registered. Alias the no-suffix path to the same
     # resource metadata so claude.ai's discovery follows correctly.
-    @mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS", "HEAD"])
     async def protected_resource_metadata(_request: Request) -> JSONResponse:
         return JSONResponse(
             {
@@ -92,6 +96,10 @@ def main() -> None:
                 "bearer_methods_supported": ["header"],
             }
         )
+
+    mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS", "HEAD"])(
+        protected_resource_metadata
+    )
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
@@ -104,7 +112,7 @@ def main() -> None:
         stateless_http,
         server_url,
     )
-    run_kwargs: dict[str, object] = {"transport": transport, "host": host, "port": port}
+    run_kwargs: dict[str, Any] = {"transport": transport, "host": host, "port": port}
     if transport in ("streamable-http", "http"):
         run_kwargs["stateless_http"] = stateless_http
     mcp.run(**run_kwargs)

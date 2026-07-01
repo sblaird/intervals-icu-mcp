@@ -826,8 +826,12 @@ async def get_activities_around(
                     metadata={"message": "No activities found around the reference activity"},
                 )
 
-            # Sort by date
-            activities.sort(key=lambda x: x.start_date_local)
+            # Sort by date. start_date_local is Optional here; give the key a
+            # total order so a null date can't raise TypeError (None sorts last,
+            # and None-vs-None / naive-vs-aware datetimes are never compared).
+            activities.sort(
+                key=lambda x: (x.start_date_local is None, x.start_date_local or datetime.min)
+            )
 
             # Find the reference activity position
             ref_index = next((i for i, a in enumerate(activities) if a.id == activity_id), None)

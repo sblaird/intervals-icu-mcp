@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from mcp.server.auth.provider import (
@@ -53,7 +53,10 @@ def _build_default_doc(
     from google.cloud import firestore  # type: ignore[attr-defined]
 
     client = firestore.AsyncClient(project=project) if project else firestore.AsyncClient()
-    return client.collection(collection).document(document_id)
+    # The real AsyncDocumentReference satisfies _AsyncDocumentLike structurally
+    # (it exposes async get/set); cast because google-cloud-firestore's overloaded
+    # signatures don't line up with the minimal Protocol pyright checks against.
+    return cast("_AsyncDocumentLike", client.collection(collection).document(document_id))
 
 
 class FirestoreOAuthProvider(InMemoryOAuthProvider):
@@ -88,21 +91,23 @@ class FirestoreOAuthProvider(InMemoryOAuthProvider):
         }
 
     def _restore(self, data: dict[str, Any]) -> None:
+        # Each map is persisted as {key: model_dump_json()} — i.e. dict[str, str].
+        # Annotate the raw dicts so the JSON payloads round-trip with known types.
+        raw_clients: dict[str, str] = data.get("clients") or {}
         self.clients = {
-            k: OAuthClientInformationFull.model_validate_json(v)
-            for k, v in (data.get("clients") or {}).items()
+            k: OAuthClientInformationFull.model_validate_json(v) for k, v in raw_clients.items()
         }
+        raw_auth_codes: dict[str, str] = data.get("auth_codes") or {}
         self.auth_codes = {
-            k: AuthorizationCode.model_validate_json(v)
-            for k, v in (data.get("auth_codes") or {}).items()
+            k: AuthorizationCode.model_validate_json(v) for k, v in raw_auth_codes.items()
         }
+        raw_access_tokens: dict[str, str] = data.get("access_tokens") or {}
         self.access_tokens = {
-            k: AccessToken.model_validate_json(v)
-            for k, v in (data.get("access_tokens") or {}).items()
+            k: AccessToken.model_validate_json(v) for k, v in raw_access_tokens.items()
         }
+        raw_refresh_tokens: dict[str, str] = data.get("refresh_tokens") or {}
         self.refresh_tokens = {
-            k: RefreshToken.model_validate_json(v)
-            for k, v in (data.get("refresh_tokens") or {}).items()
+            k: RefreshToken.model_validate_json(v) for k, v in raw_refresh_tokens.items()
         }
         self._access_to_refresh_map = dict(data.get("access_to_refresh_map") or {})
         self._refresh_to_access_map = dict(data.get("refresh_to_access_map") or {})
@@ -119,7 +124,7 @@ class FirestoreOAuthProvider(InMemoryOAuthProvider):
                 snapshot = await self._doc.get()
                 exists = bool(getattr(snapshot, "exists", False))
                 if exists:
-                    data = snapshot.to_dict() or {}
+                    data: dict[str, Any] = snapshot.to_dict() or {}
                     self._restore(data)
                     logger.info(
                         "Loaded OAuth state from Firestore: clients=%d access=%d refresh=%d auth_codes=%d",

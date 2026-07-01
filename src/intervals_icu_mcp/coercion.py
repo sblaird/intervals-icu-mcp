@@ -32,7 +32,7 @@ see the native type; only the advertised JSON schema is widened.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BeforeValidator
 
@@ -57,7 +57,7 @@ def _coerce_str_list(value: Any) -> Any:
             except json.JSONDecodeError:
                 return value
             if isinstance(parsed, list):
-                return parsed
+                return cast("list[Any]", parsed)
     return value
 
 

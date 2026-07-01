@@ -21,6 +21,7 @@ import pytest
 import respx
 from fastmcp import Client
 from httpx import Response
+from mcp.types import TextContent
 
 import intervals_icu_mcp.server as server_module
 
@@ -38,7 +39,9 @@ async def _call(tool_name: str, args: dict) -> dict:
     """Invoke a tool via the in-memory Client and return the parsed JSON payload."""
     async with Client(mcp) as client:
         result = await client.call_tool(tool_name, args)
-        return json.loads(result.content[0].text)
+        block = result.content[0]
+        assert isinstance(block, TextContent)
+        return json.loads(block.text)
 
 
 @pytest.mark.parametrize(
