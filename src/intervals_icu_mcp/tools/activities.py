@@ -4,9 +4,11 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
+from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 from ..subjective_scales import (
     FEEL_SCALE_NOTE,
@@ -18,8 +20,12 @@ from ..subjective_scales import (
 
 
 async def get_recent_activities(
-    limit: Annotated[int, "Number of activities to fetch"] = 30,
-    days_back: Annotated[int, "Number of days to look back"] = 30,
+    limit: Annotated[
+        int, CoerceInt, WithJsonSchema(int_schema("Number of activities to fetch"))
+    ] = 30,
+    days_back: Annotated[
+        int, CoerceInt, WithJsonSchema(int_schema("Number of days to look back"))
+    ] = 30,
     ctx: Context | None = None,
 ) -> str:
     """Get recent activities for the authenticated athlete.

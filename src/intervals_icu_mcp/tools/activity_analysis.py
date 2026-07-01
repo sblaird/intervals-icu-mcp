@@ -3,9 +3,11 @@
 from typing import Annotated, Any, cast
 
 from fastmcp import Context
+from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
+from ..coercion import CoerceStrList, optional_str_list_schema
 from ..response_builder import ResponseBuilder
 
 
@@ -13,7 +15,13 @@ async def get_activity_streams(
     activity_id: Annotated[str, "Activity ID to fetch streams for"],
     streams: Annotated[
         list[str] | None,
-        "List of stream types (e.g., ['watts', 'heartrate', 'cadence']). If not specified, all streams are fetched.",
+        CoerceStrList,
+        WithJsonSchema(
+            optional_str_list_schema(
+                "List of stream types (e.g., ['watts', 'heartrate', 'cadence']). "
+                "If not specified, all streams are fetched."
+            )
+        ),
     ] = None,
     ctx: Context | None = None,
 ) -> str:

@@ -4,9 +4,11 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
+from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 from ..subjective_scales import WELLNESS_SCALE_NOTE, wellness_label
 
@@ -26,7 +28,9 @@ def _emit_subjective(target: dict[str, Any], field: str, value: int | None) -> N
 
 
 async def get_wellness_data(
-    days_back: Annotated[int, "Number of days to look back"] = 7,
+    days_back: Annotated[
+        int, CoerceInt, WithJsonSchema(int_schema("Number of days to look back"))
+    ] = 7,
     ctx: Context | None = None,
 ) -> str:
     """Get wellness data for recent days.

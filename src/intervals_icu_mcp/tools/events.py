@@ -4,15 +4,21 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastmcp import Context
+from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
+from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 
 
 async def get_calendar_events(
-    days_ahead: Annotated[int, "Number of days to look ahead"] = 7,
-    days_back: Annotated[int, "Number of days to look back"] = 0,
+    days_ahead: Annotated[
+        int, CoerceInt, WithJsonSchema(int_schema("Number of days to look ahead"))
+    ] = 7,
+    days_back: Annotated[
+        int, CoerceInt, WithJsonSchema(int_schema("Number of days to look back"))
+    ] = 0,
     ctx: Context | None = None,
 ) -> str:
     """Get planned events and workouts from the calendar.
