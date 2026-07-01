@@ -385,7 +385,7 @@ class ActivityStreams(BaseModel):
         ):
             floats = [float(x) for x in items]
             return [[floats[i], floats[i + 1]] for i in range(0, len(floats), 2)]
-        return v
+        return items
 
 
 # ==================== Best Efforts Models ====================
