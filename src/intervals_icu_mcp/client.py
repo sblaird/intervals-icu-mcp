@@ -1,7 +1,7 @@
 """Async HTTP client for Intervals.icu API."""
 
 import logging
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -31,7 +31,14 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-def _build_streams_resilient(raw: dict[str, Any]) -> ActivityStreams:
+class StreamsResult(NamedTuple):
+    """An ActivityStreams plus the names of any streams dropped while parsing."""
+
+    streams: ActivityStreams
+    dropped: list[str]
+
+
+def _build_streams_resilient(raw: dict[str, Any]) -> StreamsResult:
     """Build an ActivityStreams, dropping only the individual streams that fail.
 
     A single malformed stream (historically a flat/garbage ``latlng`` from the
@@ -39,13 +46,17 @@ def _build_streams_resilient(raw: dict[str, Any]) -> ActivityStreams:
     streams response. Instead, validate all streams together and, on failure,
     drop just the offending top-level fields and retry, so the well-formed
     streams (watts, heartrate, etc.) still come through.
+
+    Returns the parsed streams alongside the names of any dropped streams so
+    callers can tell the LLM the response is partial.
     """
     data = dict(raw)
+    dropped: list[str] = []
     # Bounded retries: each pass removes at least one bad field, so at most
     # len(data) passes are needed before we either succeed or run out.
     for _ in range(len(data) + 1):
         try:
-            return ActivityStreams(**data)
+            return StreamsResult(ActivityStreams(**data), dropped)
         except ValidationError as exc:
             bad_fields = {
                 str(err["loc"][0]) for err in exc.errors() if err.get("loc")
@@ -55,7 +66,8 @@ def _build_streams_resilient(raw: dict[str, Any]) -> ActivityStreams:
             for field in bad_fields:
                 logger.warning("Dropping malformed activity stream %r", field)
                 data.pop(field, None)
-    return ActivityStreams()
+                dropped.append(field)
+    return StreamsResult(ActivityStreams(), dropped)
 
 
 class ICUAPIError(Exception):
@@ -763,7 +775,7 @@ class ICUClient:
         self,
         activity_id: str,
         streams: list[str] | None = None,
-    ) -> ActivityStreams:
+    ) -> StreamsResult:
         """Get time-series data streams for an activity.
 
         Args:
@@ -772,7 +784,7 @@ class ICUClient:
                     If None, fetches all available streams
 
         Returns:
-            ActivityStreams object with time-series data
+            StreamsResult: the parsed ActivityStreams plus any dropped stream names
         """
         params: dict[str, str] = {}
         if streams:

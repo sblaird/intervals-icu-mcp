@@ -64,6 +64,44 @@ class TestActivityStreamsResilience:
         assert streams["watts"] == [200, 210, 220]
         assert "latlng" not in streams
 
+    async def test_dropped_stream_reported_in_metadata(self, mock_config, respx_mock):
+        """A dropped stream is surfaced in response metadata so the LLM knows it's partial (Issue #3 follow-on)."""
+        mock_ctx = MagicMock()
+        mock_ctx.get_state.return_value = mock_config
+
+        payload = [
+            {"type": "watts", "data": [200, 210, 220]},
+            {"type": "latlng", "data": ["not", "a", "coordinate"]},
+        ]
+        respx_mock.get("/activity/i999/streams").mock(return_value=Response(200, json=payload))
+
+        result = await get_activity_streams(activity_id="i999", ctx=mock_ctx)
+        response = json.loads(result)
+
+        assert "error" not in response, result
+        # Good stream still comes through.
+        assert response["data"]["streams"]["watts"] == [200, 210, 220]
+        # The dropped stream is reported in metadata.
+        meta = response["metadata"]
+        assert meta["partial"] is True
+        assert meta["dropped_streams"] == ["latlng"]
+
+    async def test_clean_streams_have_no_partial_metadata(self, mock_config, respx_mock):
+        """When nothing is dropped, no partial/dropped_streams metadata is emitted."""
+        mock_ctx = MagicMock()
+        mock_ctx.get_state.return_value = mock_config
+
+        payload = [{"type": "watts", "data": [100, 110, 120]}]
+        respx_mock.get("/activity/i999/streams").mock(return_value=Response(200, json=payload))
+
+        result = await get_activity_streams(activity_id="i999", ctx=mock_ctx)
+        response = json.loads(result)
+
+        assert "error" not in response, result
+        meta = response["metadata"]
+        assert "partial" not in meta
+        assert "dropped_streams" not in meta
+
 
 class TestCreateEventValidation:
     """WORKOUT events need a type; fail fast with a clear message (Issue 4)."""

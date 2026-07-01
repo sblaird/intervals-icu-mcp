@@ -56,7 +56,21 @@ async def get_activity_streams(
 
     try:
         async with ICUClient(config) as client:
-            streams_data = await client.get_activity_streams(activity_id, streams)
+            streams_data, dropped_streams = await client.get_activity_streams(activity_id, streams)
+
+            # If the resilient parser had to discard malformed streams, tell the
+            # LLM the response is partial so it doesn't treat a missing stream as
+            # "not recorded".
+            partial_meta: dict[str, Any] = {}
+            if dropped_streams:
+                partial_meta = {
+                    "partial": True,
+                    "dropped_streams": dropped_streams,
+                    "message": (
+                        f"{len(dropped_streams)} stream(s) were malformed upstream and "
+                        f"omitted: {', '.join(dropped_streams)}"
+                    ),
+                }
 
             # Count available streams
             available_streams: list[str] = []
@@ -82,9 +96,12 @@ async def get_activity_streams(
                         stream_lengths[stream_name] = len(cast(list[Any], stream_value))
 
             if not available_streams:
+                # If streams were dropped, the partial message explains the gap;
+                # otherwise there was genuinely nothing to return.
+                metadata = partial_meta or {"message": "No stream data available for this activity"}
                 return ResponseBuilder.build_response(
                     data={"streams": {}, "available_streams": []},
-                    metadata={"message": "No stream data available for this activity"},
+                    metadata=metadata,
                 )
 
             # Build response
@@ -103,6 +120,7 @@ async def get_activity_streams(
 
             return ResponseBuilder.build_response(
                 data=result_data,
+                metadata=partial_meta or None,
                 query_type="activity_streams",
             )
 
