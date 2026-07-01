@@ -119,9 +119,25 @@ def _normalize_event_datetime(value: str) -> str:
 
 
 async def create_event(
-    start_date: Annotated[str, f"Start date or datetime. {_DATETIME_HELP}"],
     name: Annotated[str, "Event name"],
     category: Annotated[str, "Event category: WORKOUT, NOTE, RACE, or GOAL"],
+    start_date: Annotated[
+        str | None,
+        Field(
+            # Accept the API field name `start_date_local` as an alias: older
+            # project instructions documented this param that way, so Claude may
+            # call create_event(start_date_local=...). Advertised property stays
+            # `start_date`. It is optional in the schema (presence is enforced in
+            # the body below) because the strict jsonschema `required` check runs
+            # before pydantic resolves the alias — a required `start_date` would
+            # reject a call that only sent `start_date_local`.
+            validation_alias=AliasChoices("start_date", "start_date_local"),
+            description=(
+                f"Start date or datetime (required). {_DATETIME_HELP} "
+                "Also accepts alias 'start_date_local'."
+            ),
+        ),
+    ] = None,
     description: Annotated[str | None, f"Optional. {_DESCRIPTION_HELP}"] = None,
     event_type: Annotated[
         str | None,
@@ -146,9 +162,10 @@ async def create_event(
     planned metrics, notes for tracking information, races, or training goals.
 
     Args:
-        start_date: Date 'YYYY-MM-DD' or ISO-8601 datetime 'YYYY-MM-DDTHH:MM:SS'
         name: Name of the event
         category: Type of event - WORKOUT, NOTE, RACE, or GOAL
+        start_date: Date 'YYYY-MM-DD' or ISO-8601 datetime 'YYYY-MM-DDTHH:MM:SS'
+            (required; also accepts the alias 'start_date_local')
         description: Optional Intervals.icu workout syntax. Steps inside repeat
             blocks must be '- '-prefixed; this server will auto-prefix any
             unmarked steps it detects inside `Nx` blocks.
@@ -164,6 +181,15 @@ async def create_event(
     """
     assert ctx is not None
     config: ICUConfig = ctx.get_state("config")
+
+    # start_date is semantically required but declared optional so the `start_date_local`
+    # alias survives the strict jsonschema `required` check (see the signature). Enforce
+    # presence here with an actionable message.
+    if start_date is None:
+        return ResponseBuilder.build_error_response(
+            "start_date is required (date 'YYYY-MM-DD' or ISO-8601 datetime).",
+            error_type="validation_error",
+        )
 
     # Validate category
     valid_categories = ["WORKOUT", "NOTE", "RACE", "GOAL"]
@@ -246,8 +272,23 @@ async def update_event(
     event_id: Annotated[int, "Event ID to update"],
     name: Annotated[str | None, "Updated event name"] = None,
     description: Annotated[str | None, f"Updated description. {_DESCRIPTION_HELP}"] = None,
-    start_date: Annotated[str | None, f"Updated start date or datetime. {_DATETIME_HELP}"] = None,
-    event_type: Annotated[str | None, "Updated activity type"] = None,
+    start_date: Annotated[
+        str | None,
+        Field(
+            # Accept the API field name `start_date_local` as an alias (symmetric
+            # to create_event); optional here, so no jsonschema `required` clash.
+            validation_alias=AliasChoices("start_date", "start_date_local"),
+            description=f"Updated start date or datetime. {_DATETIME_HELP} Alias: 'start_date_local'.",
+        ),
+    ] = None,
+    event_type: Annotated[
+        str | None,
+        Field(
+            # Accept the legacy `type` key as an alias (symmetric to create_event).
+            validation_alias=AliasChoices("event_type", "type"),
+            description="Updated activity type (e.g., Ride, Run, Swim). Alias: 'type'.",
+        ),
+    ] = None,
     duration_seconds: Annotated[
         int | None, f"Updated duration in seconds.{_LOAD_OVERRIDE_NOTE}"
     ] = None,
