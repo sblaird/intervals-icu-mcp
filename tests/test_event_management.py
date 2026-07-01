@@ -1,7 +1,7 @@
 """Tests for event management tools — date/datetime normalization and write paths."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import Response
@@ -112,7 +112,7 @@ class TestCreateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -146,7 +146,7 @@ class TestCreateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -169,7 +169,7 @@ class TestCreateEvent:
 
     async def test_invalid_date_returns_validation_error(self, mock_config):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         result = await create_event(
             start_date="garbage",
@@ -189,7 +189,7 @@ class TestCreateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -221,7 +221,7 @@ class TestUpdateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -247,7 +247,7 @@ class TestUpdateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -272,7 +272,7 @@ class TestBulkCreateEvents:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -308,7 +308,7 @@ class TestBulkCreateEvents:
 
     async def test_invalid_date_in_one_event_returns_validation_error(self, mock_config):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         events_json = json.dumps(
             [
@@ -330,7 +330,7 @@ class TestDuplicateEvent:
         mock_event_data,
     ):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         captured: dict[str, object] = {}
 
@@ -348,7 +348,7 @@ class TestDuplicateEvent:
 
     async def test_duplicate_invalid_date(self, mock_config):
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         result = await duplicate_event(event_id=1001, new_date="bad", ctx=mock_ctx)
         response = json.loads(result)
