@@ -126,6 +126,7 @@ class TestCreateEvent:
             start_date="2026-05-07",
             name="Threshold Intervals",
             category="WORKOUT",
+            event_type="Ride",
             ctx=mock_ctx,
         )
 
@@ -159,6 +160,7 @@ class TestCreateEvent:
             start_date="2026-05-07T06:00:00",
             name="AM Ride",
             category="WORKOUT",
+            event_type="Ride",
             ctx=mock_ctx,
         )
         body = captured["body"]
@@ -173,6 +175,7 @@ class TestCreateEvent:
             start_date="garbage",
             name="x",
             category="WORKOUT",
+            event_type="Ride",
             ctx=mock_ctx,
         )
         response = json.loads(result)
@@ -200,6 +203,7 @@ class TestCreateEvent:
             start_date="2026-05-07",
             name="2x intervals",
             category="WORKOUT",
+            event_type="Ride",
             description="2x\n\n20m 220-235w\n10m 150-180w",
             ctx=mock_ctx,
         )

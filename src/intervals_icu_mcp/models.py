@@ -1,9 +1,9 @@
 """Pydantic models for Intervals.icu API responses."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Type aliases for common enums
 ActivityType = Literal["Ride", "Run", "Swim", "Walk", "Hike", "VirtualRide", "VirtualRun", "Other"]
@@ -361,6 +361,31 @@ class ActivityStreams(BaseModel):
     temp: list[int | None] | None = None
     moving: list[bool | None] | None = None
     grade_smooth: list[float | None] | None = None
+
+    @field_validator("latlng", mode="before")
+    @classmethod
+    def _reshape_flat_latlng(cls, v: Any) -> Any:
+        """Reshape a flat latlng stream into [lat, lng] pairs.
+
+        Intervals.icu sometimes returns latlng as a flat list of floats
+        (lat, lng, lat, lng, ...) instead of a list of [lat, lng] pairs.
+        Left unhandled, every sample fails validation and the entire streams
+        response is discarded. Reshape the flat form back into pairs; leave
+        anything that isn't an even-length flat numeric list untouched so the
+        normal validator (and the resilient builder in the client) can handle
+        or drop it.
+        """
+        if not isinstance(v, list):
+            return v
+        items = cast(list[Any], v)
+        if (
+            items
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in items)
+            and len(items) % 2 == 0
+        ):
+            floats = [float(x) for x in items]
+            return [[floats[i], floats[i + 1]] for i in range(0, len(floats), 2)]
+        return v
 
 
 # ==================== Best Efforts Models ====================

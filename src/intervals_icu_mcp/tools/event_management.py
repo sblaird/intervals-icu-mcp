@@ -163,6 +163,16 @@ async def create_event(
             error_type="validation_error",
         )
 
+    # The Intervals.icu API requires a type for WORKOUT events and otherwise
+    # rejects the request with a bare HTTP 422 ("type is required for category
+    # WORKOUT"). Fail fast here with an actionable message that names the
+    # parameter (event_type), since that is what this tool exposes.
+    if category.upper() == "WORKOUT" and not event_type:
+        return ResponseBuilder.build_error_response(
+            "event_type is required when category is WORKOUT (e.g., 'Ride', 'Run', 'Swim').",
+            error_type="validation_error",
+        )
+
     try:
         normalized_start = _normalize_event_datetime(start_date)
     except ValueError as e:

@@ -1,7 +1,7 @@
 """Async HTTP client for Intervals.icu API."""
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -29,6 +29,33 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _build_streams_resilient(raw: dict[str, Any]) -> ActivityStreams:
+    """Build an ActivityStreams, dropping only the individual streams that fail.
+
+    A single malformed stream (historically a flat/garbage ``latlng`` from the
+    upstream API) used to raise a ValidationError that discarded the entire
+    streams response. Instead, validate all streams together and, on failure,
+    drop just the offending top-level fields and retry, so the well-formed
+    streams (watts, heartrate, etc.) still come through.
+    """
+    data = dict(raw)
+    # Bounded retries: each pass removes at least one bad field, so at most
+    # len(data) passes are needed before we either succeed or run out.
+    for _ in range(len(data) + 1):
+        try:
+            return ActivityStreams(**data)
+        except ValidationError as exc:
+            bad_fields = {
+                str(err["loc"][0]) for err in exc.errors() if err.get("loc")
+            } & data.keys()
+            if not bad_fields:
+                raise
+            for field in bad_fields:
+                logger.warning("Dropping malformed activity stream %r", field)
+                data.pop(field, None)
+    return ActivityStreams()
 
 
 class ICUAPIError(Exception):
@@ -758,8 +785,10 @@ class ICUClient:
                 data = entry.get("data")
                 if name and data is not None:
                     streams_dict[name] = data
-            return ActivityStreams(**streams_dict)
-        return ActivityStreams(**payload)
+            return _build_streams_resilient(streams_dict)
+        if isinstance(payload, dict):
+            return _build_streams_resilient(cast(dict[str, Any], payload))
+        return _build_streams_resilient({})
 
     async def get_best_efforts(
         self,
