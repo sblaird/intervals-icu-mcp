@@ -49,6 +49,11 @@ Before installation, you need to obtain your Intervals.icu API key:
 3. Basic Auth - HTTP Basic Auth with username "API_KEY" and your key as password
 4. Persistence - Subsequent runs reuse stored credentials
 
+> **Hosting a remote OAuth server (Cloud Run / claude.ai Custom Connector)?** See
+> [docs/hosted-oauth-deployment.md](docs/hosted-oauth-deployment.md) for the
+> required env vars — in particular `OAUTH_TOKEN_STORE=firestore`, without which
+> OAuth state is wiped on every cold start ("No approval received").
+
 ### Option 1: Using UV
 
 ```bash
