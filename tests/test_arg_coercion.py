@@ -103,3 +103,121 @@ async def test_native_typed_calls_still_valid(configured_env):
         response = await _call("get_recent_activities", {"days_back": 1, "limit": 3})
 
     assert "error" not in response, response
+
+
+# ---------------------------------------------------------------------------
+# Global widening: params NOT annotated per-param must also accept string ints.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "string_args", "native_args"),
+    [
+        ("search_activities", {"query": "ride", "limit": "5"}, {"query": "ride", "limit": 5}),
+        ("get_upcoming_workouts", {"limit": "5"}, {"limit": 5}),
+        (
+            "search_activities_full",
+            {"query": "ride", "limit": "5"},
+            {"query": "ride", "limit": 5},
+        ),
+    ],
+)
+async def test_globally_widened_tools_accept_string_ints(
+    configured_env, tool_name, string_args, native_args
+):
+    """Tools widened by the global pass (no per-param annotation) accept string ints.
+
+    Reaching the handler at all proves the string passed the strict pre-dispatch
+    jsonschema gate; matching the native call proves it was coerced identically.
+    """
+    with respx.mock(base_url="https://intervals.icu/api/v1", assert_all_called=False) as rx:
+        rx.route(host="intervals.icu").mock(return_value=Response(200, json=[]))
+
+        string_response = await _call(tool_name, string_args)
+        native_response = await _call(tool_name, native_args)
+
+    assert string_response["data"] == native_response["data"]
+
+
+async def test_update_wellness_accepts_string_int_and_float(configured_env):
+    """A write tool with many numeric params accepts string ints/floats via widening."""
+    with respx.mock(base_url="https://intervals.icu/api/v1", assert_all_called=False) as rx:
+        rx.route(host="intervals.icu").mock(return_value=Response(200, json={"id": "2026-07-03"}))
+
+        string_response = await _call(
+            "update_wellness",
+            {"date": "2026-07-03", "resting_hr": "48", "weight": "72.5"},
+        )
+        native_response = await _call(
+            "update_wellness",
+            {"date": "2026-07-03", "resting_hr": 48, "weight": 72.5},
+        )
+
+    assert "error" not in string_response, string_response
+    assert string_response["data"] == native_response["data"]
+
+
+class TestWidenPropertySchema:
+    """Unit tests for the schema-widening transform."""
+
+    def test_required_int_becomes_anyof_string(self):
+        from intervals_icu_mcp.coercion import _widen_property_schema
+
+        prop = {"type": "integer", "description": "Event ID"}
+        assert _widen_property_schema(prop) is True
+        assert prop == {
+            "anyOf": [{"type": "integer"}, {"type": "string"}],
+            "description": "Event ID",
+        }
+
+    def test_optional_int_appends_string_branch(self):
+        from intervals_icu_mcp.coercion import _widen_property_schema
+
+        prop = {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None}
+        assert _widen_property_schema(prop) is True
+        assert {"type": "string"} in prop["anyOf"]
+        assert {"type": "null"} in prop["anyOf"]
+
+    def test_number_and_array_are_widened(self):
+        from intervals_icu_mcp.coercion import _widen_property_schema
+
+        num = {"type": "number"}
+        arr = {"type": "array", "items": {"type": "string"}}
+        assert _widen_property_schema(num) is True
+        assert _widen_property_schema(arr) is True
+        # array constraints (items) are preserved inside the original branch
+        assert {"type": "array", "items": {"type": "string"}} in arr["anyOf"]
+
+    def test_string_and_boolean_untouched(self):
+        from intervals_icu_mcp.coercion import _widen_property_schema
+
+        for prop in ({"type": "string"}, {"type": "boolean"}):
+            snapshot = dict(prop)
+            assert _widen_property_schema(prop) is False
+            assert prop == snapshot
+
+    def test_idempotent(self):
+        from intervals_icu_mcp.coercion import _widen_property_schema
+
+        prop = {"type": "integer", "description": "x"}
+        assert _widen_property_schema(prop) is True
+        assert _widen_property_schema(prop) is False  # already has a string branch
+
+
+async def test_no_bare_numeric_or_array_params_remain():
+    """Every registered tool param is string-tolerant after the startup widening."""
+    tools = await mcp.get_tools()
+    bare: list[str] = []
+    for name, tool in tools.items():
+        for pname, p in (tool.parameters or {}).get("properties", {}).items():
+            if pname == "ctx":
+                continue
+            if "anyOf" in p:
+                kinds = {s.get("type") for s in p["anyOf"] if isinstance(s, dict)}
+                widened = "string" in kinds
+            else:
+                kinds = {p.get("type")}
+                widened = False
+            if (kinds & {"integer", "number", "array"}) and not widened:
+                bare.append(f"{name}.{pname}")
+    assert bare == [], f"bare numeric/array params still present: {bare}"

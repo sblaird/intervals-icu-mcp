@@ -1,9 +1,14 @@
 """Intervals.icu MCP Server - FastMCP entry point."""
 
+import logging
 from typing import Any
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+
+from .coercion import widen_tool_schemas_for_string_args
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -153,6 +158,13 @@ mcp.tool()(get_route)
 mcp.tool()(compare_route_similarity)
 
 
+# Widen every tool's int/float/array params to also accept the JSON-string form
+# some MCP clients (claude.ai Custom Connectors) send. Must run after all tools
+# are registered. See coercion.widen_tool_schemas_for_string_args for the why.
+_widened_param_count = widen_tool_schemas_for_string_args(mcp)
+logger.info("Widened %d numeric/array tool params to accept string args", _widened_param_count)
+
+
 # MCP Resources - Provide ongoing context
 @mcp.resource("intervals-icu://athlete/profile")
 async def athlete_profile_resource() -> str:
@@ -186,17 +198,19 @@ async def athlete_profile_resource() -> str:
 
             # Add sport settings if available
             if athlete.sport_settings:
-                sport_data: list[dict[str, str | int | float | None]] = []
+                sport_data: list[dict[str, Any]] = []
                 for sport in athlete.sport_settings:
-                    sport_info: dict[str, str | int | float | None] = {
-                        "type": sport.type,
+                    sport_info: dict[str, Any] = {
+                        "types": sport.types,
                     }
                     if sport.ftp:
                         sport_info["ftp"] = sport.ftp
-                    if sport.fthr:
-                        sport_info["fthr"] = sport.fthr
-                    if sport.pace_threshold:
-                        sport_info["threshold_pace"] = sport.pace_threshold
+                    if sport.lthr:
+                        sport_info["lthr"] = sport.lthr
+                    if sport.max_hr:
+                        sport_info["max_hr"] = sport.max_hr
+                    if sport.threshold_pace is not None:
+                        sport_info["threshold_pace"] = sport.threshold_pace
                     sport_data.append(sport_info)
                 data["sports"] = sport_data
 

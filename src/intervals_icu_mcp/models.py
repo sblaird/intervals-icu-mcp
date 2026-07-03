@@ -14,14 +14,44 @@ EventCategory = Literal["WORKOUT", "NOTE", "RACE", "GOAL"]
 
 
 class SportSettings(BaseModel):
-    """Sport-specific settings for an athlete."""
+    """Sport-specific settings for an athlete (thresholds + zones).
 
-    id: int
-    type: str | None = None
+    Field names mirror the intervals.icu API. Note the API has **no scalar
+    ``type`` field** — a settings entry applies to a list of activity ``types``
+    (e.g. ``["Ride", "VirtualRide"]``). Heart-rate threshold is ``lthr`` (not
+    ``fthr``) and pace threshold is ``threshold_pace`` (not ``pace_threshold``).
+    The previous model used those non-existent names, so every field except
+    ``ftp`` was silently null and no zone boundaries were surfaced. ``extra`` is
+    ignored so the dozens of unmodelled upstream fields can't break parsing.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int | None = None
+    types: list[str] = Field(default_factory=list[str])
+
+    # Power
     ftp: int | None = None
-    fthr: int | None = None
-    pace_threshold: float | None = None
-    swim_threshold: float | None = None
+    indoor_ftp: int | None = None
+    w_prime: int | None = None
+    p_max: int | None = None
+    power_zones: list[int] | None = None
+    power_zone_names: list[str] | None = None
+    sweet_spot_min: int | None = None
+    sweet_spot_max: int | None = None
+
+    # Heart rate
+    lthr: int | None = None
+    max_hr: int | None = None
+    hr_zones: list[int] | None = None
+    hr_zone_names: list[str] | None = None
+
+    # Pace (threshold_pace is in intervals.icu's native units; pair with
+    # pace_units to interpret. Surfaced raw — no lossy min:sec conversion.)
+    threshold_pace: float | None = None
+    pace_units: str | None = None
+    pace_zones: list[float] | None = None
+    pace_zone_names: list[str] | None = None
 
 
 class Athlete(BaseModel):

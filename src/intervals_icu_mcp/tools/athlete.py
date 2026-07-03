@@ -57,20 +57,20 @@ async def get_athlete_profile(
             sports: list[dict[str, Any]] = []
             if athlete.sport_settings:
                 for sport in athlete.sport_settings:
+                    # Summary view of thresholds; get_sport_settings surfaces full zones.
                     sport_data: dict[str, Any] = {}
-                    if sport.type:
-                        sport_data["type"] = sport.type
+                    if sport.types:
+                        sport_data["types"] = sport.types
                     if sport.ftp:
                         sport_data["ftp"] = sport.ftp
-                    if sport.fthr:
-                        sport_data["fthr"] = sport.fthr
-                    if sport.pace_threshold:
-                        sport_data["pace_threshold_seconds"] = sport.pace_threshold
-                        minutes = int(sport.pace_threshold // 60)
-                        seconds = int(sport.pace_threshold % 60)
-                        sport_data["pace_threshold_formatted"] = f"{minutes}:{seconds:02d} /km"
-                    if sport.swim_threshold:
-                        sport_data["swim_threshold"] = sport.swim_threshold
+                    if sport.lthr:
+                        sport_data["lthr"] = sport.lthr
+                    if sport.max_hr:
+                        sport_data["max_hr"] = sport.max_hr
+                    if sport.threshold_pace is not None:
+                        sport_data["threshold_pace"] = sport.threshold_pace
+                        if sport.pace_units:
+                            sport_data["pace_units"] = sport.pace_units
                     sports.append(sport_data)
 
             data: dict[str, Any] = {
