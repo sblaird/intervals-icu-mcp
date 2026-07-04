@@ -10,6 +10,46 @@ from ..models import SportSettings
 from ..response_builder import ResponseBuilder
 
 
+def _min_per_km_to_mps(min_per_km: float) -> float:
+    """Convert a running pace in decimal minutes/km to meters/second.
+
+    intervals.icu stores ``threshold_pace`` in m/s (verified 2026-07-03). E.g.
+    5.0 (5:00/km) -> 1000 / (5*60) = 3.333 m/s.
+    """
+    return 1000.0 / (min_per_km * 60.0)
+
+
+def _min_per_100m_to_mps(min_per_100m: float) -> float:
+    """Convert a swim pace in decimal minutes/100m to meters/second.
+
+    E.g. 2.0 (2:00/100m) -> 100 / (2*60) = 0.8333 m/s (matches the real Swim entry).
+    """
+    return 100.0 / (min_per_100m * 60.0)
+
+
+def _resolve_pace_mps(
+    pace_threshold: float | None, swim_threshold: float | None
+) -> tuple[float | None, str | None]:
+    """Resolve the ``(threshold_pace m/s, display pace_units)`` from the human pace args.
+
+    A sport is either run-paced or swim-paced, so supplying both is rejected. Raises
+    ValueError on conflicting or non-positive input; returns ``(None, None)`` when no
+    pace was given. ``pace_units`` is a sensible display default for a freshly created
+    entry (updates leave the athlete's existing preference untouched).
+    """
+    if pace_threshold is not None and swim_threshold is not None:
+        raise ValueError("Provide either pace_threshold or swim_threshold, not both.")
+    if pace_threshold is not None:
+        if pace_threshold <= 0:
+            raise ValueError("pace_threshold must be a positive number of minutes per km.")
+        return _min_per_km_to_mps(pace_threshold), "MINS_KM"
+    if swim_threshold is not None:
+        if swim_threshold <= 0:
+            raise ValueError("swim_threshold must be a positive number of minutes per 100m.")
+        return _min_per_100m_to_mps(swim_threshold), "SECS_100M"
+    return None, None
+
+
 def _serialize_sport_settings(settings: SportSettings) -> dict[str, Any]:
     """Flatten a SportSettings into an LLM-friendly dict of thresholds + zones.
 
@@ -90,10 +130,12 @@ async def get_sport_settings(
                 {"sport_settings": settings_data},
                 analysis={
                     "zone_note": (
-                        "power_zones/hr_zones/pace_zones are the upper boundary of each "
-                        "zone as stored by intervals.icu (power/HR as a percent of "
-                        "ftp/lthr; pace in native units). Combine with ftp, lthr, max_hr "
-                        "and threshold_pace to derive absolute zone edges."
+                        "Zone arrays are the upper boundary of each zone, in the units "
+                        "intervals.icu stores them (verified 2026-07-03): power_zones are "
+                        "a % of FTP (a trailing 999 marks the open-ended top zone); "
+                        "hr_zones are absolute bpm (top == max_hr); pace_zones and "
+                        "threshold_pace are speeds in m/s. pace_units (e.g. MINS_KM) is "
+                        "display-only."
                     )
                 },
                 metadata={"count": len(settings_list), "type": "sport_settings_list"},
@@ -123,8 +165,10 @@ async def update_sport_settings(
         sport_id: ID of the sport settings to update
         ftp: Functional Threshold Power in watts (optional)
         fthr: Functional Threshold Heart Rate in bpm (optional)
-        pace_threshold: Threshold pace in min/km (optional)
-        swim_threshold: Swim threshold in min/100m (optional)
+        pace_threshold: Running threshold pace in min/km, e.g. 4.5 for 4:30/km (optional).
+            Converted to m/s (intervals.icu's stored unit) before sending.
+        swim_threshold: Swim threshold in min/100m, e.g. 1.5 for 1:30/100m (optional).
+            Mutually exclusive with pace_threshold.
 
     Returns:
         Updated sport settings
@@ -136,6 +180,11 @@ async def update_sport_settings(
         )
 
     try:
+        pace_mps, _pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
+    except ValueError as e:
+        return ResponseBuilder.build_error_response(str(e), error_type="validation_error")
+
+    try:
         async with ICUClient(config) as client:
             settings_data: dict[str, Any] = {}
 
@@ -145,16 +194,10 @@ async def update_sport_settings(
             # silently ignored by the API.
             if fthr is not None:
                 settings_data["lthr"] = fthr
-            # NOTE: pace/swim threshold writes are intentionally left on their legacy
-            # keys. intervals.icu's `threshold_pace` is stored in native units we can't
-            # reliably convert from the min/km|min/100m the params document, so routing
-            # the value to `threshold_pace` without a verified conversion could corrupt
-            # the athlete's pace zones. Reads are fixed; the pace *write* mapping is a
-            # separate follow-on. See tests/test_sport_settings.py.
-            if pace_threshold is not None:
-                settings_data["pace_threshold"] = pace_threshold
-            if swim_threshold is not None:
-                settings_data["swim_threshold"] = swim_threshold
+            # threshold_pace is stored in m/s (verified 2026-07-03). Leave pace_units
+            # alone on update so we don't clobber the athlete's display preference.
+            if pace_mps is not None:
+                settings_data["threshold_pace"] = pace_mps
 
             if not settings_data:
                 return ResponseBuilder.build_error_response(
@@ -238,8 +281,9 @@ async def create_sport_settings(
         sport_type: Type of sport (e.g., 'Ride', 'Run', 'Swim')
         ftp: Functional Threshold Power in watts (optional)
         fthr: Functional Threshold Heart Rate in bpm (optional)
-        pace_threshold: Threshold pace in min/km (optional)
-        swim_threshold: Swim threshold in min/100m (optional)
+        pace_threshold: Running threshold pace in min/km, e.g. 4.5 for 4:30/km (optional).
+        swim_threshold: Swim threshold in min/100m, e.g. 1.5 for 1:30/100m (optional).
+            Mutually exclusive with pace_threshold.
 
     Returns:
         Created sport settings
@@ -251,22 +295,32 @@ async def create_sport_settings(
         )
 
     try:
+        pace_mps, pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
+    except ValueError as e:
+        return ResponseBuilder.build_error_response(str(e), error_type="validation_error")
+
+    try:
         async with ICUClient(config) as client:
             # Upstream field is `types` (a list), not a scalar `type`.
-            settings_data: dict[str, Any] = {"types": [sport_type]}
+            post_body: dict[str, Any] = {"types": [sport_type]}
 
             if ftp is not None:
-                settings_data["ftp"] = ftp
-            # `lthr` upstream, not `fthr` (see update_sport_settings note).
+                post_body["ftp"] = ftp
+            # `lthr` upstream, not `fthr` (see update_sport_settings).
             if fthr is not None:
-                settings_data["lthr"] = fthr
-            # Pace/swim writes left on legacy keys pending verified unit conversion.
-            if pace_threshold is not None:
-                settings_data["pace_threshold"] = pace_threshold
-            if swim_threshold is not None:
-                settings_data["swim_threshold"] = swim_threshold
+                post_body["lthr"] = fthr
+            # Set a sensible display unit for a new entry (updates leave it alone).
+            if pace_units is not None:
+                post_body["pace_units"] = pace_units
 
-            settings = await client.create_sport_settings(settings_data)
+            settings = await client.create_sport_settings(post_body)
+
+            # intervals.icu silently drops threshold_pace on create — it only sticks via
+            # a follow-up PUT (verified 2026-07-03). Stored in m/s.
+            if pace_mps is not None and settings.id is not None:
+                settings = await client.update_sport_settings(
+                    settings.id, {"threshold_pace": pace_mps}
+                )
 
             return ResponseBuilder.build_response(
                 _serialize_sport_settings(settings),
