@@ -19,9 +19,11 @@ from intervals_icu_mcp.models import SportSettings
 from intervals_icu_mcp.tools import sport_settings as ss_tool
 
 
-def _monkeypatch_config(monkeypatch, mock_config):
-    monkeypatch.setattr(ss_tool, "load_config", lambda: mock_config)
-    monkeypatch.setattr(ss_tool, "validate_credentials", lambda _cfg: True)
+def _ctx(mock_config) -> MagicMock:
+    """Fake middleware context: tools read config via ctx.get_state("config")."""
+    ctx = MagicMock()
+    ctx.get_state.return_value = mock_config
+    return ctx
 
 
 # Realistic Ride sport-settings entry (field names mirror the intervals.icu API).
@@ -91,17 +93,12 @@ class TestSportSettingsModel:
 
 
 class TestGetSportSettingsTool:
-    def _monkeypatch_config(self, monkeypatch, mock_config):
-        monkeypatch.setattr(ss_tool, "load_config", lambda: mock_config)
-        monkeypatch.setattr(ss_tool, "validate_credentials", lambda _cfg: True)
-
     async def test_surfaces_zones_and_types(self, mock_config, respx_mock, monkeypatch):
-        self._monkeypatch_config(monkeypatch, mock_config)
         respx_mock.get("/athlete/i123456/sport-settings").mock(
             return_value=Response(200, json=[RIDE_SETTINGS, RUN_SETTINGS])
         )
 
-        result = await ss_tool.get_sport_settings(ctx=MagicMock())
+        result = await ss_tool.get_sport_settings(ctx=_ctx(mock_config))
         body = json.loads(result)
         entries = body["data"]["sport_settings"]
         assert len(entries) == 2
@@ -121,12 +118,11 @@ class TestGetSportSettingsTool:
     async def test_run_entry_without_power_still_surfaces_hr_and_pace(
         self, mock_config, respx_mock, monkeypatch
     ):
-        self._monkeypatch_config(monkeypatch, mock_config)
         respx_mock.get("/athlete/i123456/sport-settings").mock(
             return_value=Response(200, json=[RUN_SETTINGS])
         )
 
-        result = await ss_tool.get_sport_settings(ctx=MagicMock())
+        result = await ss_tool.get_sport_settings(ctx=_ctx(mock_config))
         body = json.loads(result)
         run = body["data"]["sport_settings"][0]
         assert "ftp_watts" not in run
@@ -140,11 +136,10 @@ class TestGetSportSettingsTool:
         Verified 2026-07-03 against athlete i29347: hr_zones are BPM (top == max_hr),
         NOT a percent of lthr as the first cut of the note wrongly claimed.
         """
-        self._monkeypatch_config(monkeypatch, mock_config)
         respx_mock.get("/athlete/i123456/sport-settings").mock(
             return_value=Response(200, json=[RIDE_SETTINGS])
         )
-        result = await ss_tool.get_sport_settings(ctx=MagicMock())
+        result = await ss_tool.get_sport_settings(ctx=_ctx(mock_config))
         note = json.loads(result)["analysis"]["zone_note"].lower()
         assert "bpm" in note
         assert "% of ftp" in note
@@ -169,7 +164,6 @@ class TestUpdateSportSettingsPaceWrite:
     async def test_pace_threshold_sent_as_mps_under_threshold_pace_key(
         self, mock_config, respx_mock, monkeypatch
     ):
-        _monkeypatch_config(monkeypatch, mock_config)
         captured: dict = {}
 
         def handler(request):
@@ -178,14 +172,13 @@ class TestUpdateSportSettingsPaceWrite:
 
         respx_mock.put("/athlete/i123456/sport-settings/5").mock(side_effect=handler)
 
-        await ss_tool.update_sport_settings(sport_id=5, pace_threshold=5.0, ctx=MagicMock())
+        await ss_tool.update_sport_settings(sport_id=5, pace_threshold=5.0, ctx=_ctx(mock_config))
         assert captured["body"]["threshold_pace"] == pytest.approx(3.3333, abs=1e-3)
         assert "pace_threshold" not in captured["body"]  # legacy (ignored) key is gone
         # An update must not clobber the athlete's existing display preference.
         assert "pace_units" not in captured["body"]
 
     async def test_swim_threshold_sent_as_mps(self, mock_config, respx_mock, monkeypatch):
-        _monkeypatch_config(monkeypatch, mock_config)
         captured: dict = {}
 
         def handler(request):
@@ -194,13 +187,12 @@ class TestUpdateSportSettingsPaceWrite:
 
         respx_mock.put("/athlete/i123456/sport-settings/6").mock(side_effect=handler)
 
-        await ss_tool.update_sport_settings(sport_id=6, swim_threshold=2.0, ctx=MagicMock())
+        await ss_tool.update_sport_settings(sport_id=6, swim_threshold=2.0, ctx=_ctx(mock_config))
         assert captured["body"]["threshold_pace"] == pytest.approx(0.8333333, abs=1e-4)
 
     async def test_both_pace_args_rejected(self, mock_config, respx_mock, monkeypatch):
-        _monkeypatch_config(monkeypatch, mock_config)
         result = await ss_tool.update_sport_settings(
-            sport_id=5, pace_threshold=5.0, swim_threshold=2.0, ctx=MagicMock()
+            sport_id=5, pace_threshold=5.0, swim_threshold=2.0, ctx=_ctx(mock_config)
         )
         body = json.loads(result)
         assert body["error"]["type"] == "validation_error"
@@ -209,7 +201,6 @@ class TestUpdateSportSettingsPaceWrite:
 class TestCreateSportSettingsPaceWrite:
     async def test_create_posts_then_puts_pace_in_mps(self, mock_config, respx_mock, monkeypatch):
         """Create silently drops threshold_pace, so the tool must POST then PUT it."""
-        _monkeypatch_config(monkeypatch, mock_config)
         posts: list = []
         puts: list = []
 
@@ -227,7 +218,7 @@ class TestCreateSportSettingsPaceWrite:
         respx_mock.put("/athlete/i123456/sport-settings/99").mock(side_effect=put_handler)
 
         result = await ss_tool.create_sport_settings(
-            sport_type="Run", pace_threshold=5.0, ctx=MagicMock()
+            sport_type="Run", pace_threshold=5.0, ctx=_ctx(mock_config)
         )
         body = json.loads(result)
 
@@ -240,7 +231,6 @@ class TestCreateSportSettingsPaceWrite:
         assert body["data"]["threshold_pace"] == pytest.approx(3.3333, abs=1e-3)
 
     async def test_create_without_pace_makes_no_put(self, mock_config, respx_mock, monkeypatch):
-        _monkeypatch_config(monkeypatch, mock_config)
         posts: list = []
         puts: list = []
 
@@ -255,7 +245,7 @@ class TestCreateSportSettingsPaceWrite:
         respx_mock.post("/athlete/i123456/sport-settings").mock(side_effect=post_handler)
         respx_mock.put("/athlete/i123456/sport-settings/100").mock(side_effect=put_handler)
 
-        await ss_tool.create_sport_settings(sport_type="Ride", ftp=300, ctx=MagicMock())
+        await ss_tool.create_sport_settings(sport_type="Ride", ftp=300, ctx=_ctx(mock_config))
         assert len(posts) == 1
         assert posts[0]["ftp"] == 300
         assert len(puts) == 0  # no pace -> no follow-up PUT

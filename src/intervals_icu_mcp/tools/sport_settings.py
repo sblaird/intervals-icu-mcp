@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastmcp import Context
 
-from ..auth import load_config, validate_credentials
+from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..models import SportSettings
 from ..response_builder import ResponseBuilder
@@ -109,11 +109,8 @@ async def get_sport_settings(
     Returns:
         Formatted list of sport settings with thresholds and zones
     """
-    config = load_config()
-    if not validate_credentials(config):
-        return (
-            "Error: Intervals.icu credentials not configured. Run intervals-icu-mcp-auth to set up."
-        )
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -178,11 +175,8 @@ async def update_sport_settings(
     Returns:
         Updated sport settings
     """
-    config = load_config()
-    if not validate_credentials(config):
-        return (
-            "Error: Intervals.icu credentials not configured. Run intervals-icu-mcp-auth to set up."
-        )
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
 
     try:
         pace_mps, _pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
@@ -244,11 +238,8 @@ async def apply_sport_settings(
     Returns:
         Result of applying settings
     """
-    config = load_config()
-    if not validate_credentials(config):
-        return (
-            "Error: Intervals.icu credentials not configured. Run intervals-icu-mcp-auth to set up."
-        )
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -293,11 +284,8 @@ async def create_sport_settings(
     Returns:
         Created sport settings
     """
-    config = load_config()
-    if not validate_credentials(config):
-        return (
-            "Error: Intervals.icu credentials not configured. Run intervals-icu-mcp-auth to set up."
-        )
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
 
     try:
         pace_mps, pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
@@ -353,11 +341,8 @@ async def delete_sport_settings(
     Returns:
         Deletion confirmation
     """
-    config = load_config()
-    if not validate_credentials(config):
-        return (
-            "Error: Intervals.icu credentials not configured. Run intervals-icu-mcp-auth to set up."
-        )
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
