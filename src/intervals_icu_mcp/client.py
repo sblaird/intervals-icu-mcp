@@ -1407,6 +1407,7 @@ class ICUClient:
         route_id: int,
         other_route_id: int,
         athlete_id: str | None = None,
+        include_paths: bool = False,
     ) -> dict[str, Any]:
         """Compute similarity between two of the athlete's routes.
 
@@ -1414,13 +1415,23 @@ class ICUClient:
             route_id: First route ID
             other_route_id: Second route ID to compare against
             athlete_id: Athlete ID (uses config default if not provided)
+            include_paths: If True, keep both routes' latlng path arrays
+                (large payload). Default strips them — the upstream endpoint
+                has no exclude option, so this is done client-side — leaving
+                the similarity metrics and bounds.
 
         Returns:
-            Raw RouteSimilarity dict (includes both routes' paths).
+            Raw RouteSimilarity dict.
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request(
             "GET",
             f"/athlete/{athlete_id}/routes/{route_id}/similarity/{other_route_id}",
         )
-        return response.json()
+        payload: Any = response.json()
+        if not include_paths and isinstance(payload, dict):
+            for key in ("route", "other"):
+                embedded = cast("dict[str, Any]", payload).get(key)
+                if isinstance(embedded, dict):
+                    cast("dict[str, Any]", embedded).pop("latlngs", None)
+        return cast("dict[str, Any]", payload)

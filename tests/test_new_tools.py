@@ -107,6 +107,17 @@ class TestGetRoute:
         assert captured["params"] == {"includePath": "true"}
 
 
+def _similarity_payload() -> dict:
+    return {
+        "route": {"route_id": 3, "name": "Loop A", "latlngs": [[44.0, -72.0], [44.1, -72.1]]},
+        "route_distance": 42000.0,
+        "other": {"route_id": 4, "name": "Loop B", "latlngs": [[44.0, -72.0], [44.2, -72.2]]},
+        "other_distance": 41000.0,
+        "similarity": 0.92,
+        "bounds": [[44.0, -72.2], [44.2, -72.0]],
+    }
+
+
 class TestRouteSimilarity:
     async def test_calls_correct_path(self, mock_config, respx_mock):
         sim = {"similarity": 0.92}
@@ -118,6 +129,36 @@ class TestRouteSimilarity:
         assert body["data"]["route_id"] == 3
         assert body["data"]["other_route_id"] == 4
         assert body["data"]["similarity"] == sim
+
+    async def test_default_omits_route_paths(self, mock_config, respx_mock):
+        """R5 (STB-M6): raw latlng arrays are stripped unless include_paths=True."""
+        respx_mock.get("/athlete/i123456/routes/3/similarity/4").mock(
+            return_value=Response(200, json=_similarity_payload())
+        )
+        result = await compare_route_similarity(route_id=3, other_route_id=4, ctx=_ctx(mock_config))
+        body = json.loads(result)
+        similarity = body["data"]["similarity"]
+        assert "latlngs" not in similarity["route"]
+        assert "latlngs" not in similarity["other"]
+        # Metrics are untouched.
+        assert similarity["similarity"] == 0.92
+        assert similarity["route_distance"] == 42000.0
+        assert similarity["bounds"] == [[44.0, -72.2], [44.2, -72.0]]
+        assert body["metadata"]["include_paths"] is False
+
+    async def test_include_paths_true_restores_geometry(self, mock_config, respx_mock):
+        respx_mock.get("/athlete/i123456/routes/3/similarity/4").mock(
+            return_value=Response(200, json=_similarity_payload())
+        )
+        result = await compare_route_similarity(
+            route_id=3, other_route_id=4, include_paths=True, ctx=_ctx(mock_config)
+        )
+        body = json.loads(result)
+        similarity = body["data"]["similarity"]
+        assert similarity["route"]["latlngs"] == [[44.0, -72.0], [44.1, -72.1]]
+        assert similarity["other"]["latlngs"] == [[44.0, -72.0], [44.2, -72.2]]
+        assert similarity["similarity"] == 0.92
+        assert body["metadata"]["include_paths"] is True
 
 
 class TestPowerVsHr:

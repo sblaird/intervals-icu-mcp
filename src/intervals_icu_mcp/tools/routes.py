@@ -85,16 +85,23 @@ async def get_route(
 async def compare_route_similarity(
     route_id: Annotated[int, "First route ID"],
     other_route_id: Annotated[int, "Second route ID to compare against"],
+    include_paths: Annotated[
+        bool,
+        "If True, include both routes' latlng path geometry (large payload). "
+        "Leave False for the similarity metrics only.",
+    ] = False,
     ctx: Context | None = None,
 ) -> str:
     """Compute the similarity score between two of the athlete's routes.
 
     Use this to confirm two rides covered the same loop before comparing
-    power/HR/duration. The response includes both routes' path data.
+    power/HR/duration. By default the routes' raw path arrays are omitted
+    (same convention as `get_route`); pass include_paths=True for geometry.
 
     Args:
         route_id: First route ID
         other_route_id: Second route ID to compare against
+        include_paths: Whether to include both routes' latlng path arrays
 
     Returns:
         JSON string with the similarity payload.
@@ -104,7 +111,9 @@ async def compare_route_similarity(
 
     try:
         async with ICUClient(config) as client:
-            similarity: dict[str, Any] = await client.get_route_similarity(route_id, other_route_id)
+            similarity: dict[str, Any] = await client.get_route_similarity(
+                route_id, other_route_id, include_paths=include_paths
+            )
             return ResponseBuilder.build_response(
                 data={
                     "route_id": route_id,
@@ -112,6 +121,7 @@ async def compare_route_similarity(
                     "similarity": similarity,
                 },
                 query_type="route_similarity",
+                metadata={"include_paths": include_paths},
             )
     except ICUAPIError as e:
         return ResponseBuilder.build_error_response(e.message, error_type="api_error")
