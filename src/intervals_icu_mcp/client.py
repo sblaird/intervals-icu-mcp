@@ -225,6 +225,8 @@ class ICUClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
+            # R9 (SEC-4): the upstream body goes to the logs for debugging but
+            # is NOT reflected into the message the model sees.
             body = e.response.text[:500] if e.response.text else ""
             logger.warning(
                 "ICU API HTTP %s on %s %s | body=%s",
@@ -234,7 +236,7 @@ class ICUClient:
                 body,
             )
             raise ICUAPIError(
-                f"HTTP {e.response.status_code}: {body}",
+                f"intervals.icu returned HTTP {e.response.status_code} for this request.",
                 e.response.status_code,
             ) from e
         return response

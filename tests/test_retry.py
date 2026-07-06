@@ -103,6 +103,25 @@ class TestRetryableFailures:
         assert route.call_count == ICUClient.MAX_RETRIES + 1
 
 
+class TestErrorBodyNotReflected:
+    """R9 (SEC-4): upstream error bodies are logged, never returned."""
+
+    async def test_error_body_absent_from_message_but_logged(self, mock_config, respx_mock, caplog):
+        import logging
+
+        secret_body = "stacktrace: internal-database-hostname-and-query"
+        respx_mock.get("/athlete/i123456/gear").mock(return_value=Response(422, text=secret_body))
+        with caplog.at_level(logging.WARNING, logger="intervals_icu_mcp.client"):
+            async with ICUClient(mock_config) as client:
+                with pytest.raises(ICUAPIError) as excinfo:
+                    await client._request("GET", "/athlete/i123456/gear")
+
+        assert secret_body not in excinfo.value.message
+        assert excinfo.value.message == "intervals.icu returned HTTP 422 for this request."
+        assert excinfo.value.status_code == 422
+        assert any(secret_body in record.getMessage() for record in caplog.records)
+
+
 class TestNonRetryable:
     async def test_404_is_not_retried(self, mock_config, respx_mock):
         route = respx_mock.get("/athlete/i123456/gear").mock(return_value=Response(404))
