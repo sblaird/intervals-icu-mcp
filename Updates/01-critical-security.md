@@ -11,6 +11,32 @@
 **Source:** connector review, findings SEC-1 (Critical) & SEC-2 (High). Full context and traceability
 in `docs/connector-review-fixes.md`.
 
+## R1 prerequisites — Stephen, before the R1 deploy (Console tasks)
+
+- [ ] **Micro-decision:** which Google account gates access + consent-screen type.
+      Recommended: workspace `stephen@bramblepathdigital.com` + **Internal** consent screen
+      (no test-user/publishing hassle). Alt: `stephen.b.laird@gmail.com` + External + add self as test user.
+- [ ] **OAuth consent screen** (project `intervals-mcp-2026`): APIs & Services → OAuth consent screen →
+      Internal (or External + test user) → name "intervals-mcp connector" → save. Scopes: `openid` +
+      `email` (defaults, nothing to add).
+- [ ] **Create the Web client:** APIs & Services → Credentials → Create credentials → OAuth client ID →
+      Web application. Authorized redirect URI:
+      `https://intervals-mcp-840283109221.us-central1.run.app/auth/google/callback`
+- [ ] **Store the secrets yourself** (keeps them out of chat):
+      ```bash
+      printf '%s' 'PASTE_CLIENT_ID'     | gcloud secrets create GOOGLE_OAUTH_CLIENT_ID     --data-file=- --project=intervals-mcp-2026
+      printf '%s' 'PASTE_CLIENT_SECRET' | gcloud secrets create GOOGLE_OAUTH_CLIENT_SECRET --data-file=- --project=intervals-mcp-2026
+      ```
+- [ ] Report "secrets created" + the chosen email → assistant adds the new `--set-secrets` entries and
+      `MCP_ALLOWED_EMAILS=<chosen email>` to the deploy command. (`gcloud auth login` may need a refresh.)
+
+## R1 deploy checklist (after code + prerequisites)
+
+- [ ] Deploy with the two new secrets + `MCP_ALLOWED_EMAILS` (needs Stephen's go-ahead).
+- [ ] **D3 one-time token flush:** clear the Firestore `oauth_state/singleton` doc so tokens issued
+      during the open window die, then re-authorize the connector once as Stephen.
+- [ ] Verify: unattended `register → authorize` redirects to Google; claude.ai re-authorization works.
+
 ## Guardrails (apply to both requirements)
 - Test-first. Drive tool-path changes through the in-memory `Client(mcp)` (see `tests/test_arg_coercion.py`).
 - `make can-release` must stay green: full suite, `ruff check`, `ruff format --check`, **pyright 0 errors** (strict `src/`).

@@ -1,6 +1,7 @@
 """Intervals.icu MCP Server - FastMCP entry point."""
 
 import logging
+import os
 from typing import Any
 
 from dotenv import load_dotenv
@@ -12,6 +13,26 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes"}
+
+
+# R2 (SEC-2): destructive tools register only when ENABLE_WRITE_TOOLS is set.
+# Defense-in-depth against prompt injection during a legitimate session — the
+# hosted deploy leaves this off; flip it on locally when a delete or a
+# settings-apply is genuinely needed.
+WRITE_TOOLS_ENABLED = _env_flag("ENABLE_WRITE_TOOLS")
+
+GATED_DESTRUCTIVE_TOOLS = (
+    "delete_activity",
+    "delete_event",
+    "bulk_delete_events",
+    "delete_gear",
+    "delete_sport_settings",
+    "apply_sport_settings",
+)
 
 # Initialize FastMCP server
 mcp = FastMCP("Intervals.icu")
@@ -86,7 +107,8 @@ mcp.tool()(search_activities)
 mcp.tool()(search_activities_full)
 mcp.tool()(get_activities_around)
 mcp.tool()(update_activity)
-mcp.tool()(delete_activity)
+if WRITE_TOOLS_ENABLED:
+    mcp.tool()(delete_activity)
 mcp.tool()(download_activity_file)
 mcp.tool()(download_fit_file)
 mcp.tool()(download_gpx_file)
@@ -118,9 +140,11 @@ mcp.tool()(get_upcoming_workouts)
 mcp.tool()(get_event)
 mcp.tool()(create_event)
 mcp.tool()(update_event)
-mcp.tool()(delete_event)
+if WRITE_TOOLS_ENABLED:
+    mcp.tool()(delete_event)
 mcp.tool()(bulk_create_events)
-mcp.tool()(bulk_delete_events)
+if WRITE_TOOLS_ENABLED:
+    mcp.tool()(bulk_delete_events)
 mcp.tool()(duplicate_event)
 mcp.tool()(mark_event_done)
 
@@ -137,16 +161,18 @@ mcp.tool()(get_workouts_in_folder)
 mcp.tool()(get_gear_list)
 mcp.tool()(create_gear)
 mcp.tool()(update_gear)
-mcp.tool()(delete_gear)
+if WRITE_TOOLS_ENABLED:
+    mcp.tool()(delete_gear)
 mcp.tool()(create_gear_reminder)
 mcp.tool()(update_gear_reminder)
 
 # Register sport settings tools
 mcp.tool()(get_sport_settings)
 mcp.tool()(update_sport_settings)
-mcp.tool()(apply_sport_settings)
 mcp.tool()(create_sport_settings)
-mcp.tool()(delete_sport_settings)
+if WRITE_TOOLS_ENABLED:
+    mcp.tool()(apply_sport_settings)
+    mcp.tool()(delete_sport_settings)
 
 # Register weather tools
 mcp.tool()(get_weather_forecast)
@@ -163,6 +189,17 @@ mcp.tool()(compare_route_similarity)
 # are registered. See coercion.widen_tool_schemas_for_string_args for the why.
 _widened_param_count = widen_tool_schemas_for_string_args(mcp)
 logger.info("Widened %d numeric/array tool params to accept string args", _widened_param_count)
+
+if WRITE_TOOLS_ENABLED:
+    logger.info(
+        "Destructive tools ENABLED via ENABLE_WRITE_TOOLS: %s",
+        ", ".join(GATED_DESTRUCTIVE_TOOLS),
+    )
+else:
+    logger.info(
+        "Destructive tools disabled (set ENABLE_WRITE_TOOLS=true to register): %s",
+        ", ".join(GATED_DESTRUCTIVE_TOOLS),
+    )
 
 
 # MCP Resources - Provide ongoing context
