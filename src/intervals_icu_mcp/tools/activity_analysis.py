@@ -1,5 +1,6 @@
 """Activity analysis tools for Intervals.icu MCP server."""
 
+import math
 from typing import Annotated, Any, cast
 
 from fastmcp import Context
@@ -9,6 +10,81 @@ from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..coercion import CoerceStrList, optional_str_list_schema
 from ..response_builder import ResponseBuilder
+
+# R3 (STB-H1): default per-stream sample cap. A 4-hour 1 Hz ride is ~14,400
+# samples x up to 11 streams — verbatim JSON can exceed the MCP message limit.
+STREAM_MAX_SAMPLES_DEFAULT = 3000
+
+
+def _decimate(values: list[Any], stride: int) -> list[Any]:
+    """Uniform stride sampling that always keeps the first and last samples."""
+    if stride <= 1 or len(values) <= 2:
+        return values
+    sampled = values[::stride]
+    if (len(values) - 1) % stride != 0:
+        sampled.append(values[-1])
+    return sampled
+
+
+def _bound_stream_payload(
+    streams_dict: dict[str, Any],
+    *,
+    max_samples: int | None,
+    resolution: int | None,
+) -> tuple[dict[str, Any], dict[str, int], dict[str, Any]]:
+    """Bound list-valued streams to a sample budget (R3).
+
+    Returns (bounded streams, per-stream returned lengths, truncation
+    metadata). ``resolution`` (every Nth sample) wins over ``max_samples``;
+    ``max_samples=None`` disables the cap entirely.
+    """
+    original_lengths = {
+        name: len(cast("list[Any]", value))
+        for name, value in streams_dict.items()
+        if isinstance(value, list)
+    }
+    max_original = max(original_lengths.values(), default=0)
+    if resolution is not None:
+        stride = resolution
+    elif max_samples is not None and max_original > max_samples:
+        stride = math.ceil(max_original / max_samples)
+    else:
+        stride = 1
+
+    if stride <= 1:
+        return streams_dict, dict(original_lengths), {"truncated": False}
+
+    bounded: dict[str, Any] = {}
+    for name, value in streams_dict.items():
+        if not isinstance(value, list):
+            bounded[name] = value
+            continue
+        sampled = _decimate(cast("list[Any]", value), stride)
+        # Keeping the last sample can overshoot the cap by one; trim the
+        # second-to-last so first/last survive. (Explicit resolution is the
+        # caller's choice — never re-capped.)
+        if resolution is None and max_samples is not None and len(sampled) > max_samples:
+            del sampled[-2]
+        bounded[name] = sampled
+
+    returned_lengths = {
+        name: len(cast("list[Any]", value))
+        for name, value in bounded.items()
+        if isinstance(value, list)
+    }
+    truncated = returned_lengths != original_lengths
+    if not truncated:
+        return bounded, returned_lengths, {"truncated": False}
+    return (
+        bounded,
+        returned_lengths,
+        {
+            "truncated": True,
+            "original_samples": max_original,
+            "returned_samples": max(returned_lengths.values(), default=0),
+            "stride": stride,
+        },
+    )
 
 
 async def get_activity_streams(
@@ -22,6 +98,16 @@ async def get_activity_streams(
                 "If not specified, all streams are fetched."
             )
         ),
+    ] = None,
+    max_samples: Annotated[
+        int | None,
+        "Maximum samples returned per stream (default 3000). Longer streams are "
+        "uniformly decimated, keeping the first and last samples. Pass null to "
+        "disable the cap (payload may be very large).",
+    ] = STREAM_MAX_SAMPLES_DEFAULT,
+    resolution: Annotated[
+        int | None,
+        "Explicit 'every Nth sample' stride; takes precedence over max_samples.",
     ] = None,
     ctx: Context | None = None,
 ) -> str:
@@ -47,12 +133,27 @@ async def get_activity_streams(
     Args:
         activity_id: The unique ID of the activity
         streams: Optional list of specific stream types to fetch
+        max_samples: Maximum samples per stream (default 3000); longer streams
+            are uniformly decimated with first/last kept. null disables the cap.
+        resolution: Explicit "every Nth sample" stride; overrides max_samples.
 
     Returns:
-        JSON string with time-series data streams
+        JSON string with time-series data streams. When decimation occurred,
+        metadata carries truncated=true, original_samples, returned_samples,
+        and stride.
     """
     assert ctx is not None
     config: ICUConfig = ctx.get_state("config")
+
+    if max_samples is not None and max_samples < 1:
+        return ResponseBuilder.build_error_response(
+            "max_samples must be >= 1 (or null to disable the cap)",
+            error_type="validation_error",
+        )
+    if resolution is not None and resolution < 1:
+        return ResponseBuilder.build_error_response(
+            "resolution must be >= 1", error_type="validation_error"
+        )
 
     try:
         async with ICUClient(config) as client:
@@ -111,6 +212,11 @@ async def get_activity_streams(
                 if stream_value is not None:
                     streams_dict[stream_name] = stream_value
 
+            # Bound the payload (R3): decimate over-long streams uniformly.
+            streams_dict, stream_lengths, truncation_meta = _bound_stream_payload(
+                streams_dict, max_samples=max_samples, resolution=resolution
+            )
+
             result_data = {
                 "activity_id": activity_id,
                 "streams": streams_dict,
@@ -120,7 +226,7 @@ async def get_activity_streams(
 
             return ResponseBuilder.build_response(
                 data=result_data,
-                metadata=partial_meta or None,
+                metadata={**partial_meta, **truncation_meta},
                 query_type="activity_streams",
             )
 
