@@ -4,25 +4,33 @@
 
 Read this first to resume.
 
-## ⚡ 2026-07-06 session: Phase 0 + Phase 1 CODE COMPLETE (not yet deployed)
+## ⚡ 2026-07-06 session: ALL PHASES (0–4) CODE COMPLETE (not yet deployed)
 
-All six requirements implemented, test-first, one commit each (`f30c4e6`..`68cf464`), gate green
-(**228 tests · ruff clean · pyright 0 errors**):
+Every requirement R1–R16 implemented test-first (`f30c4e6`..`1beab4c`), gate green
+(**269 tests · ruff clean · pyright 0 errors**). Pushed to origin.
 
-- **R1** Google-identity OAuth gate (`google_oauth.py`; fail-closed — server refuses to boot
-  without `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/`MCP_ALLOWED_EMAILS`)
-- **R2** `ENABLE_WRITE_TOOLS` gates the 5 deletes + `apply_sport_settings` (default OFF)
-- **R3** stream caps (`max_samples`=3000 default, `resolution` override, truncation metadata)
-- **R4** download guards (5 MB inline limit; `output_path` confined to `DOWNLOAD_SCRATCH_DIR`)
-- **R5** `compare_route_similarity(include_paths=False)` default strips latlngs
-- **R6** `parse_list_resilient` on all 14 list sites + `dropped_count` metadata; Athlete/Event/
-  HistogramBin drift-tolerant
+- **R1** Google-identity OAuth gate (`google_oauth.py`; fail-closed boot) · **R2** `ENABLE_WRITE_TOOLS`
+  gates 5 deletes + `apply_sport_settings` (default OFF)
+- **R3** stream caps (3000 default) · **R4** download guards (5 MB inline, scratch-dir-confined
+  output_path) · **R5** similarity `include_paths=False` · **R6** resilient per-item list parsing
+  (all 14 sites) + `dropped_count` metadata; Athlete/Event/HistogramBin drift-tolerant
+- **R7** Firestore load-retry + critical persist raise · **R8** retry/backoff (429/5xx, Retry-After)
+  · **R9** generic upstream error messages · **R10** non-root container (verified in Docker)
+- **R11** unified config via middleware ctx · **R12** date-format hardening · **R13** central
+  handler-exception logging in `build_error_response`
+- **R14** 30 new Activity fields in `get_activity_details` · **R15** wellness `vo2max` · **R16** five
+  new tools: `get_power_model`, `get_power_vs_hr_trend`, `get_activity_curves`, `get_interval_stats`,
+  `get_activity_segments` (56 → 61 tools)
 
-`Updates/02` archived. `Updates/01` stays until the R1 deploy + Firestore token flush complete.
-**BLOCKED ON STEPHEN:** the §5 micro-decision + Google OAuth client creation (Console), then deploy
-approval. `gcloud` creds expired — run `gcloud auth login`. NOT yet pushed to origin.
-**⚠ Deploying `main` without the new secrets will fail at boot (fail-closed R1) — create the
-secrets first.** Phases 2–4 (`Updates/03–05`) remain, unblocked.
+`Updates/02–05` archived. `Updates/01` stays until the R1 deploy + Firestore token flush complete.
+**BLOCKED ON STEPHEN (only remaining work):** create the Google OAuth client (Console; decision made:
+workspace `stephen@bramblepathdigital.com` + Internal consent) → store the 2 secrets → `gcloud auth
+login` → deploy go-ahead. **⚠ Deploying `main` without the new secrets will fail at boot (fail-closed
+R1) — create the secrets first.** Deploy adds:
+`--set-secrets=...,GOOGLE_OAUTH_CLIENT_ID=GOOGLE_OAUTH_CLIENT_ID:latest,GOOGLE_OAUTH_CLIENT_SECRET=GOOGLE_OAUTH_CLIENT_SECRET:latest`
+and env `MCP_ALLOWED_EMAILS=stephen@bramblepathdigital.com` (leave `ENABLE_WRITE_TOOLS` unset).
+Post-deploy: one-time Firestore `oauth_state/singleton` flush, re-authorize connector, archive
+`Updates/01`.
 
 ---
 
