@@ -13,9 +13,8 @@ in `docs/connector-review-fixes.md`.
 
 ## R1 prerequisites — Stephen, before the R1 deploy (Console tasks)
 
-- [ ] **Micro-decision:** which Google account gates access + consent-screen type.
-      Recommended: workspace `stephen@bramblepathdigital.com` + **Internal** consent screen
-      (no test-user/publishing hassle). Alt: `stephen.b.laird@gmail.com` + External + add self as test user.
+- [x] **Micro-decision (RESOLVED 2026-07-06):** workspace `stephen@bramblepathdigital.com` +
+      **Internal** consent screen. → `MCP_ALLOWED_EMAILS=stephen@bramblepathdigital.com`
 - [ ] **OAuth consent screen** (project `intervals-mcp-2026`): APIs & Services → OAuth consent screen →
       Internal (or External + test user) → name "intervals-mcp connector" → save. Scopes: `openid` +
       `email` (defaults, nothing to add).
