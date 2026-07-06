@@ -24,6 +24,11 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080
 
+# Run as non-root (R10, SEC-3). /app stays root-owned read-only on purpose —
+# the server never writes there; downloads go to the tmp scratch dir.
+RUN useradd --create-home --uid 1001 app
+USER app
+
 EXPOSE 8080
 
 ENTRYPOINT ["python", "-m", "intervals_icu_mcp.remote_server"]
