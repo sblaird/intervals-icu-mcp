@@ -15,26 +15,26 @@ in `docs/connector-review-fixes.md`.
 
 - [x] **Micro-decision (RESOLVED 2026-07-06):** workspace `stephen@bramblepathdigital.com` +
       **Internal** consent screen. → `MCP_ALLOWED_EMAILS=stephen@bramblepathdigital.com`
-- [ ] **OAuth consent screen** (project `intervals-mcp-2026`): APIs & Services → OAuth consent screen →
+- [x] **OAuth consent screen** (done 2026-07-06) (project `intervals-mcp-2026`): APIs & Services → OAuth consent screen →
       Internal (or External + test user) → name "intervals-mcp connector" → save. Scopes: `openid` +
       `email` (defaults, nothing to add).
-- [ ] **Create the Web client:** APIs & Services → Credentials → Create credentials → OAuth client ID →
+- [x] **Create the Web client** (done 2026-07-06): APIs & Services → Credentials → Create credentials → OAuth client ID →
       Web application. Authorized redirect URI:
       `https://intervals-mcp-840283109221.us-central1.run.app/auth/google/callback`
-- [ ] **Store the secrets yourself** (keeps them out of chat):
+- [x] **Store the secrets** (done 2026-07-06 from local info file; values never entered chat) (keeps them out of chat):
       ```bash
       printf '%s' 'PASTE_CLIENT_ID'     | gcloud secrets create GOOGLE_OAUTH_CLIENT_ID     --data-file=- --project=intervals-mcp-2026
       printf '%s' 'PASTE_CLIENT_SECRET' | gcloud secrets create GOOGLE_OAUTH_CLIENT_SECRET --data-file=- --project=intervals-mcp-2026
       ```
-- [ ] Report "secrets created" + the chosen email → assistant adds the new `--set-secrets` entries and
+- [x] Report "secrets created" + the chosen email → assistant adds the new `--set-secrets` entries and
       `MCP_ALLOWED_EMAILS=<chosen email>` to the deploy command. (`gcloud auth login` may need a refresh.)
 
 ## R1 deploy checklist (after code + prerequisites)
 
-- [ ] Deploy with the two new secrets + `MCP_ALLOWED_EMAILS` (needs Stephen's go-ahead).
-- [ ] **D3 one-time token flush:** clear the Firestore `oauth_state/singleton` doc so tokens issued
+- [x] Deploy with the two new secrets (revision 00019-w56, then 00020-dls; 2026-07-06) + `MCP_ALLOWED_EMAILS` (needs Stephen's go-ahead).
+- [x] **D3 one-time token flush** (2026-07-06; doc deleted, fresh revision, verified 404): clear the Firestore `oauth_state/singleton` doc so tokens issued
       during the open window die, then re-authorize the connector once as Stephen.
-- [ ] Verify: unattended `register → authorize` redirects to Google; claude.ai re-authorization works.
+- [x] Verify: unattended `register → authorize` redirects to Google (verified live 2026-07-06); claude.ai re-authorization works.
 
 ## Guardrails (apply to both requirements)
 - Test-first. Drive tool-path changes through the in-memory `Client(mcp)` (see `tests/test_arg_coercion.py`).
