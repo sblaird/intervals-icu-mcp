@@ -142,6 +142,8 @@ async def get_wellness_data(
                     other["hydration_liters"] = round(record.hydration_volume, 1)
                 if record.readiness:
                     other["readiness"] = round(record.readiness, 0)
+                if record.vo2max:
+                    other["vo2max"] = round(record.vo2max, 1)
                 if other:
                     day_data["other"] = other
 
@@ -288,6 +290,8 @@ async def get_wellness_for_date(
                 body["weight_kg"] = wellness.weight
             if wellness.body_fat:
                 body["body_fat_percent"] = round(wellness.body_fat, 1)
+            if wellness.vo2max:
+                body["vo2max"] = round(wellness.vo2max, 1)
             if body:
                 wellness_data["body"] = body
 

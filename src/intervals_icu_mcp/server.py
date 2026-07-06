@@ -56,11 +56,14 @@ from .tools.activities import (
     update_activity,
 )
 from .tools.activity_analysis import (
+    get_activity_curves,
     get_activity_intervals,
+    get_activity_segments,
     get_activity_streams,
     get_best_efforts,
     get_gap_histogram,
     get_hr_histogram,
+    get_interval_stats,
     get_pace_histogram,
     get_power_histogram,
     get_power_vs_hr,
@@ -87,7 +90,7 @@ from .tools.gear import (
     update_gear,
     update_gear_reminder,
 )
-from .tools.performance import get_power_curves
+from .tools.performance import get_power_curves, get_power_model, get_power_vs_hr_trend
 from .tools.routes import compare_route_similarity, get_route, list_routes
 from .tools.sport_settings import (
     apply_sport_settings,
@@ -124,6 +127,9 @@ mcp.tool()(get_pace_histogram)
 mcp.tool()(get_gap_histogram)
 mcp.tool()(get_power_vs_hr)
 mcp.tool()(get_time_at_hr)
+mcp.tool()(get_activity_curves)
+mcp.tool()(get_interval_stats)
+mcp.tool()(get_activity_segments)
 
 # Register athlete tools
 mcp.tool()(get_athlete_profile)
@@ -152,6 +158,8 @@ mcp.tool()(mark_event_done)
 mcp.tool()(get_power_curves)
 mcp.tool()(get_hr_curves)
 mcp.tool()(get_pace_curves)
+mcp.tool()(get_power_model)
+mcp.tool()(get_power_vs_hr_trend)
 
 # Register workout library tools
 mcp.tool()(get_workout_library)

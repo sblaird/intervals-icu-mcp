@@ -302,8 +302,81 @@ async def get_activity_details(
                 training_metrics["hrss"] = round(activity.hrss, 0)
             if activity.trimp:
                 training_metrics["trimp"] = round(activity.trimp, 0)
+            if activity.decoupling is not None:
+                training_metrics["decoupling_percent"] = round(activity.decoupling, 2)
+            if activity.polarization_index is not None:
+                training_metrics["polarization_index"] = round(activity.polarization_index, 2)
+            if activity.session_rpe:
+                training_metrics["session_rpe"] = activity.session_rpe
+            if activity.strain_score is not None:
+                training_metrics["strain_score"] = round(activity.strain_score, 1)
+            if activity.power_load:
+                training_metrics["power_load"] = activity.power_load
+            if activity.hr_load:
+                training_metrics["hr_load"] = activity.hr_load
+            if activity.pace_load:
+                training_metrics["pace_load"] = activity.pace_load
             if training_metrics:
                 activity_data["training"] = training_metrics
+
+            # Zone-time distribution (R14)
+            zone_times: dict[str, Any] = {}
+            if activity.icu_zone_times:
+                zone_times["power"] = activity.icu_zone_times
+            if activity.icu_hr_zone_times:
+                zone_times["heart_rate"] = activity.icu_hr_zone_times
+            if activity.pace_zone_times:
+                zone_times["pace"] = activity.pace_zone_times
+            if activity.gap_zone_times:
+                zone_times["gap"] = activity.gap_zone_times
+            if zone_times:
+                zone_times["note"] = "Seconds spent per zone (power entries carry zone ids)."
+                activity_data["zone_times"] = zone_times
+
+            # Fitness / power model at ride time (R14)
+            fitness: dict[str, Any] = {}
+            if activity.icu_ctl is not None:
+                fitness["ctl"] = round(activity.icu_ctl, 1)
+            if activity.icu_atl is not None:
+                fitness["atl"] = round(activity.icu_atl, 1)
+            if activity.icu_rolling_ftp:
+                fitness["rolling_ftp"] = activity.icu_rolling_ftp
+            if activity.icu_rolling_ftp_delta:
+                fitness["rolling_ftp_delta"] = activity.icu_rolling_ftp_delta
+            if activity.icu_pm_ftp:
+                fitness["power_model_ftp"] = activity.icu_pm_ftp
+            if activity.icu_pm_cp:
+                fitness["power_model_cp"] = activity.icu_pm_cp
+            if activity.icu_pm_w_prime:
+                fitness["power_model_w_prime_joules"] = activity.icu_pm_w_prime
+            if fitness:
+                activity_data["fitness"] = fitness
+
+            # Fueling / energy (R14)
+            fueling: dict[str, Any] = {}
+            if activity.icu_joules:
+                fueling["work_joules"] = activity.icu_joules
+            if activity.icu_joules_above_ftp:
+                fueling["work_above_ftp_joules"] = activity.icu_joules_above_ftp
+            if activity.carbs_used:
+                fueling["carbs_used_grams"] = activity.carbs_used
+            if activity.carbs_ingested:
+                fueling["carbs_ingested_grams"] = activity.carbs_ingested
+            if fueling:
+                activity_data["fueling"] = fueling
+
+            # Environment (R14)
+            environment: dict[str, Any] = {}
+            if activity.average_temp is not None:
+                environment["average_temp_c"] = activity.average_temp
+            if activity.average_wind_speed is not None:
+                environment["average_wind_speed"] = activity.average_wind_speed
+            if activity.headwind_percent is not None:
+                environment["headwind_percent"] = activity.headwind_percent
+            if activity.tailwind_percent is not None:
+                environment["tailwind_percent"] = activity.tailwind_percent
+            if environment:
+                activity_data["environment"] = environment
 
             # Subjective metrics. ``feel`` is on intervals.icu's inverted
             # 1-5 scale (1=best, 5=worst); always emit a label so downstream
@@ -330,6 +403,16 @@ async def get_activity_details(
                 other_info["indoor"] = True
             if activity.commute:
                 other_info["commute"] = True
+            if activity.race:
+                other_info["race"] = True
+            if activity.tags:
+                other_info["tags"] = activity.tags
+            if activity.gap is not None:
+                other_info["gap_meters_per_sec"] = activity.gap
+            if activity.coasting_time:
+                other_info["coasting_time_seconds"] = activity.coasting_time
+            if activity.interval_summary:
+                other_info["interval_summary"] = activity.interval_summary
             if other_info:
                 activity_data["other"] = other_info
 

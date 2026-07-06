@@ -1533,3 +1533,115 @@ class ICUClient:
                 if isinstance(embedded, dict):
                     cast("dict[str, Any]", embedded).pop("latlngs", None)
         return cast("dict[str, Any]", payload)
+
+    # ============== Advanced Performance Endpoints (R16) ==============
+    # All return raw upstream payloads — no strict pydantic modeling,
+    # defensive against future schema drift (same convention as weather/routes).
+
+    async def get_power_model(
+        self,
+        athlete_id: str | None = None,
+        sport_type: str = "Ride",
+    ) -> dict[str, Any]:
+        """Get the athlete's fitted power model (eFTP / CP / W').
+
+        Args:
+            athlete_id: Athlete ID (uses config default if not provided)
+            sport_type: Sport the model is fitted for (required by the API)
+
+        Returns:
+            Raw MMP model dict (ftp, criticalPower, wPrime, pMax, ...).
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request(
+            "GET", f"/athlete/{athlete_id}/mmp-model", params={"type": sport_type}
+        )
+        return cast("dict[str, Any]", response.json())
+
+    async def get_activity_curve(
+        self,
+        activity_id: str,
+        curve: str = "power",
+        fatigue: str | None = None,
+        use_gap: bool = False,
+    ) -> Any:
+        """Get a single activity's power/hr/pace curve.
+
+        Args:
+            activity_id: Activity ID
+            curve: "power", "hr", or "pace"
+            fatigue: power only — kJ pre-burn threshold(s) for
+                fatigue-resistance curves, passed through verbatim
+            use_gap: pace only — use gradient-adjusted pace
+
+        Returns:
+            Raw curve payload (shape varies by curve type).
+        """
+        params: dict[str, str] = {}
+        if curve == "power" and fatigue:
+            params["fatigue"] = fatigue
+        if curve == "pace" and use_gap:
+            params["gap"] = "true"
+        response = await self._request(
+            "GET", f"/activity/{activity_id}/{curve}-curve", params=params or None
+        )
+        return response.json()
+
+    async def get_power_vs_hr_trend(
+        self,
+        start: str,
+        end: str,
+        athlete_id: str | None = None,
+    ) -> Any:
+        """Get the power-vs-HR curve for a date range (aerobic efficiency).
+
+        Args:
+            start: Start date (ISO-8601, required by the API)
+            end: End date (ISO-8601, required by the API)
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Raw power-hr curve payload.
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request(
+            "GET",
+            f"/athlete/{athlete_id}/power-hr-curve",
+            params={"start": start, "end": end},
+        )
+        return response.json()
+
+    async def get_interval_stats(
+        self,
+        activity_id: str,
+        start_index: int,
+        end_index: int,
+    ) -> dict[str, Any]:
+        """Compute stats for an arbitrary span of an activity's streams.
+
+        Args:
+            activity_id: Activity ID
+            start_index: Start stream index (inclusive)
+            end_index: End stream index
+
+        Returns:
+            Raw interval-stats dict for the span.
+        """
+        response = await self._request(
+            "GET",
+            f"/activity/{activity_id}/interval-stats",
+            params={"start_index": start_index, "end_index": end_index},
+        )
+        return cast("dict[str, Any]", response.json())
+
+    async def get_activity_segments(self, activity_id: str) -> Any:
+        """Get the segment efforts for an activity.
+
+        Args:
+            activity_id: Activity ID
+
+        Returns:
+            Raw segments payload (list of segment efforts).
+        """
+        response = await self._request("GET", f"/activity/{activity_id}/segments")
+        return response.json()

@@ -887,3 +887,195 @@ async def get_time_at_hr(
         return ResponseBuilder.build_error_response(
             f"Unexpected error: {str(e)}", error_type="internal_error"
         )
+
+
+def _cap_payload_lists(payload: Any, max_points: int) -> tuple[Any, dict[str, Any]]:
+    """Uniformly decimate long list values in a raw payload (R3 spirit).
+
+    Works on a bare list or the top-level lists of a dict; first/last entries
+    are kept. Returns the capped payload plus truncation metadata.
+    """
+
+    def cap_list(values: list[Any]) -> tuple[list[Any], bool]:
+        if len(values) <= max_points:
+            return values, False
+        stride = math.ceil(len(values) / max_points)
+        sampled = _decimate(values, stride)
+        if len(sampled) > max_points:
+            del sampled[-2]
+        return sampled, True
+
+    truncated = False
+    result: Any = payload
+    if isinstance(payload, list):
+        result, truncated = cap_list(cast("list[Any]", payload))
+    elif isinstance(payload, dict):
+        capped_dict: dict[str, Any] = {}
+        for key, value in cast("dict[str, Any]", payload).items():
+            if isinstance(value, list):
+                capped_value, was_truncated = cap_list(cast("list[Any]", value))
+                truncated = truncated or was_truncated
+                capped_dict[key] = capped_value
+            else:
+                capped_dict[key] = value
+        result = capped_dict
+    meta: dict[str, Any] = {"truncated": truncated}
+    if truncated:
+        meta["max_points"] = max_points
+    return result, meta
+
+
+async def get_activity_curves(
+    activity_id: Annotated[str, "Activity ID to fetch the curve for"],
+    curve_type: Annotated[str, "Curve to fetch: 'power', 'hr', or 'pace'"] = "power",
+    fatigue: Annotated[
+        str | None,
+        "Power only: kJ pre-burn threshold(s) for fatigue-resistance curves "
+        "(e.g. '1000' for the curve after 1000 kJ of work), passed through verbatim.",
+    ] = None,
+    use_gap: Annotated[bool, "Pace only: use gradient-adjusted pace"] = False,
+    max_points: Annotated[
+        int | None,
+        "Cap on points per curve array (default 1000); longer arrays are "
+        "uniformly decimated with first/last kept. Pass null to disable.",
+    ] = 1000,
+    ctx: Context | None = None,
+) -> str:
+    """Get a single activity's power/HR/pace curve (best effort per duration).
+
+    Useful for "was that a season-best effort?" checks and, with `fatigue`,
+    fatigue-resistance analysis (the power curve after N kJ of prior work).
+
+    Args:
+        activity_id: The unique ID of the activity
+        curve_type: 'power' (supports fatigue), 'hr', or 'pace' (supports use_gap)
+        fatigue: Optional kJ pre-burn threshold(s), power curves only
+        use_gap: Use gradient-adjusted pace, pace curves only
+        max_points: Per-array point cap (null disables)
+
+    Returns:
+        JSON string with the curve payload
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    if curve_type not in ("power", "hr", "pace"):
+        return ResponseBuilder.build_error_response(
+            "curve_type must be one of: power, hr, pace", error_type="validation_error"
+        )
+    if max_points is not None and max_points < 2:
+        return ResponseBuilder.build_error_response(
+            "max_points must be >= 2 (or null to disable the cap)",
+            error_type="validation_error",
+        )
+
+    try:
+        async with ICUClient(config) as client:
+            payload = await client.get_activity_curve(
+                activity_id, curve=curve_type, fatigue=fatigue, use_gap=use_gap
+            )
+            if max_points is not None:
+                payload, truncation_meta = _cap_payload_lists(payload, max_points)
+            else:
+                truncation_meta = {"truncated": False}
+            return ResponseBuilder.build_response(
+                data={
+                    "activity_id": activity_id,
+                    "curve_type": curve_type,
+                    "curve": payload,
+                },
+                metadata=truncation_meta,
+                query_type="activity_curve",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )
+
+
+async def get_interval_stats(
+    activity_id: Annotated[str, "Activity ID to analyze"],
+    start_index: Annotated[int, "Start stream index (inclusive, 0-based)"],
+    end_index: Annotated[int, "End stream index (exclusive of the span end)"],
+    ctx: Context | None = None,
+) -> str:
+    """Compute stats for an arbitrary span of an activity ("the climb from minute 40-55").
+
+    Takes stream indices (as returned by get_activity_streams / best-effort
+    start_index/end_index) and returns power/HR/pace stats for just that span.
+
+    Args:
+        activity_id: The unique ID of the activity
+        start_index: Start stream index
+        end_index: End stream index (must be greater than start_index)
+
+    Returns:
+        JSON string with stats for the span
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    if start_index < 0 or end_index <= start_index:
+        return ResponseBuilder.build_error_response(
+            "start_index must be >= 0 and end_index must be greater than start_index",
+            error_type="validation_error",
+        )
+
+    try:
+        async with ICUClient(config) as client:
+            stats = await client.get_interval_stats(activity_id, start_index, end_index)
+            return ResponseBuilder.build_response(
+                data={
+                    "activity_id": activity_id,
+                    "start_index": start_index,
+                    "end_index": end_index,
+                    "stats": stats,
+                },
+                query_type="interval_stats",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )
+
+
+async def get_activity_segments(
+    activity_id: Annotated[str, "Activity ID to fetch segment efforts for"],
+    ctx: Context | None = None,
+) -> str:
+    """Get segment efforts for an activity (repeated-loop benchmarking).
+
+    Returns the activity's efforts on saved segments — the natural way to
+    compare "today vs last time on this climb/loop".
+
+    Args:
+        activity_id: The unique ID of the activity
+
+    Returns:
+        JSON string with the segment efforts
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            segments = await client.get_activity_segments(activity_id)
+            count = len(cast("list[Any]", segments)) if isinstance(segments, list) else None
+            return ResponseBuilder.build_response(
+                data={
+                    "activity_id": activity_id,
+                    "segments": segments,
+                    "count": count,
+                },
+                query_type="activity_segments",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )

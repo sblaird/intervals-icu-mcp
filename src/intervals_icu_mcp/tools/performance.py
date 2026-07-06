@@ -200,3 +200,83 @@ async def get_power_curves(
         return ResponseBuilder.build_error_response(
             f"Unexpected error: {str(e)}", error_type="internal_error"
         )
+
+
+async def get_power_model(
+    sport_type: Annotated[
+        str, "Sport the model is fitted for: 'Ride', 'VirtualRide', 'Run', etc."
+    ] = "Ride",
+    ctx: Context | None = None,
+) -> str:
+    """Get the athlete's fitted power-duration model (eFTP, critical power, W', pMax).
+
+    intervals.icu fits a power model to recent efforts; its `ftp` value is the
+    current eFTP estimate. Comparing it with the configured FTP in sport
+    settings answers "is my FTP trending up?".
+
+    Args:
+        sport_type: Sport the model is fitted for (default "Ride")
+
+    Returns:
+        JSON string with the raw model parameters
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            model = await client.get_power_model(sport_type=sport_type)
+            return ResponseBuilder.build_response(
+                data={"sport_type": sport_type, "power_model": model},
+                analysis={
+                    "note": (
+                        "`ftp` here is the model's eFTP estimate from recent efforts — "
+                        "compare with the configured FTP in sport settings to see the trend."
+                    )
+                },
+                query_type="power_model",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )
+
+
+async def get_power_vs_hr_trend(
+    start_date: Annotated[str, "Start date (YYYY-MM-DD)"],
+    end_date: Annotated[str, "End date (YYYY-MM-DD)"],
+    ctx: Context | None = None,
+) -> str:
+    """Get the power-vs-HR curve for a date range (aerobic efficiency trend).
+
+    Compare two training blocks (e.g. start vs end of base season) to see if
+    the same heart rate now yields more power — the aerobic-efficiency signal.
+
+    Args:
+        start_date: Start of the range (YYYY-MM-DD)
+        end_date: End of the range (YYYY-MM-DD)
+
+    Returns:
+        JSON string with the power-vs-HR curve for the range
+    """
+    assert ctx is not None
+    config: ICUConfig = ctx.get_state("config")
+
+    try:
+        async with ICUClient(config) as client:
+            trend = await client.get_power_vs_hr_trend(start_date, end_date)
+            return ResponseBuilder.build_response(
+                data={
+                    "date_range": {"start": start_date, "end": end_date},
+                    "power_vs_hr": trend,
+                },
+                query_type="power_vs_hr_trend",
+            )
+    except ICUAPIError as e:
+        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
+    except Exception as e:
+        return ResponseBuilder.build_error_response(
+            f"Unexpected error: {str(e)}", error_type="internal_error"
+        )

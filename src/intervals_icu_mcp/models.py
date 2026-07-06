@@ -147,6 +147,44 @@ class Activity(ActivitySummary):
     indoor: bool | None = None
     analyzed: str | None = None
 
+    # R14: training-relevant fields (names/types verified against the
+    # openapi spec on 2026-07-06). Zone times:
+    icu_zone_times: list[Any] | None = None  # power zones, list of ZoneTime dicts
+    icu_hr_zone_times: list[int] | None = None
+    pace_zone_times: list[int] | None = None
+    gap_zone_times: list[int] | None = None
+    # Fitness / power model:
+    icu_ctl: float | None = None
+    icu_atl: float | None = None
+    icu_rolling_ftp: int | None = None
+    icu_rolling_ftp_delta: int | None = None
+    icu_pm_ftp: int | None = None
+    icu_pm_cp: int | None = None
+    icu_pm_w_prime: int | None = None
+    # Load / intensity:
+    decoupling: float | None = None
+    polarization_index: float | None = None
+    session_rpe: int | None = None
+    strain_score: float | None = None
+    power_load: int | None = None
+    hr_load: int | None = None
+    pace_load: int | None = None
+    # Fueling:
+    icu_joules: int | None = None
+    icu_joules_above_ftp: int | None = None
+    carbs_used: int | None = None
+    # Environment:
+    headwind_percent: float | None = None
+    tailwind_percent: float | None = None
+    average_wind_speed: float | None = None
+    average_temp: float | None = None
+    # Meta:
+    gap: float | None = None
+    tags: list[str] | None = None
+    race: bool | None = None
+    coasting_time: int | None = None
+    interval_summary: list[str] | None = None
+
 
 class ActivitySearchResult(BaseModel):
     """Search result for activities."""
@@ -193,6 +231,11 @@ class Wellness(BaseModel):
     body_fat: float | None = Field(None, alias="bodyFat")
     readiness: float | None = None
     baevsky_si: float | None = Field(None, alias="baevskySI")
+    # R15: Garmin-synced VO2max estimate, plus flags marking resting HR /
+    # weight as auto-carried-forward temporary values (openapi-verified names).
+    vo2max: float | None = None
+    temp_resting_hr: bool | None = Field(None, alias="tempRestingHR")
+    temp_weight: bool | None = Field(None, alias="tempWeight")
     steps: int | None = None
     comments: str | None = None
     ctl: float | None = None
