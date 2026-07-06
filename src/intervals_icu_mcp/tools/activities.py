@@ -1,5 +1,8 @@
 """Activity-related tools for Intervals.icu MCP server."""
 
+import base64
+import os
+import tempfile
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
@@ -17,6 +20,99 @@ from ..subjective_scales import (
 from ..subjective_scales import (
     feel_label as _format_feel_label,
 )
+
+# R4 (STB-H2): a season-long GPX can be 10-50 MB (+33% as base64); inlining it
+# blows the MCP message limit and Cloud Run's 512 MiB budget. Files above this
+# size must go to the scratch dir via output_path instead.
+DOWNLOAD_MAX_INLINE_BYTES = 5 * 1024 * 1024
+
+
+def _download_scratch_dir() -> str:
+    """The only directory download tools may write to (env-overridable)."""
+    return os.path.realpath(
+        os.getenv("DOWNLOAD_SCRATCH_DIR")
+        or os.path.join(tempfile.gettempdir(), "intervals-icu-mcp-downloads")
+    )
+
+
+def _resolve_output_path(output_path: str) -> str:
+    """Resolve output_path inside the scratch dir; raise ValueError if it escapes.
+
+    output_path must be relative — it is joined onto the scratch dir, and the
+    resolved result must stay inside it (blocks absolute paths, drive letters,
+    and ``..`` traversal). Creates parent directories as needed.
+    """
+    scratch_dir = _download_scratch_dir()
+    if os.path.isabs(output_path) or os.path.splitdrive(output_path)[0]:
+        raise ValueError(
+            "output_path must be a relative path; files are saved inside the "
+            f"scratch directory ({scratch_dir})"
+        )
+    candidate = os.path.realpath(os.path.join(scratch_dir, output_path))
+    if os.path.commonpath([scratch_dir, candidate]) != scratch_dir:
+        raise ValueError(
+            "output_path may not escape the scratch directory "
+            f"({scratch_dir}); remove '..' segments"
+        )
+    os.makedirs(os.path.dirname(candidate), exist_ok=True)
+    return candidate
+
+
+def _build_download_response(
+    *,
+    activity_id: str,
+    file_content: bytes,
+    output_path: str | None,
+    query_type: str,
+    format_label: str | None,
+) -> str:
+    """Shared save-or-inline handling for the three download tools (R4)."""
+    format_data: dict[str, Any] = {"format": format_label} if format_label else {}
+    label = format_label or "activity"
+
+    if output_path:
+        try:
+            resolved = _resolve_output_path(output_path)
+        except ValueError as exc:
+            return ResponseBuilder.build_error_response(str(exc), error_type="validation_error")
+        with open(resolved, "wb") as f:
+            f.write(file_content)
+        return ResponseBuilder.build_response(
+            data={
+                "activity_id": activity_id,
+                **format_data,
+                "saved_to": resolved,
+                "size_bytes": len(file_content),
+            },
+            query_type=query_type,
+            metadata={
+                "message": f"{label} file saved to {resolved}",
+                "bytes": len(file_content),
+                "encoding": "file",
+            },
+        )
+
+    if len(file_content) > DOWNLOAD_MAX_INLINE_BYTES:
+        return ResponseBuilder.build_error_response(
+            f"File is {len(file_content)} bytes, above the "
+            f"{DOWNLOAD_MAX_INLINE_BYTES}-byte inline limit. Call again with "
+            "output_path (a relative filename) to save it to the scratch "
+            "directory instead of returning the bytes.",
+            error_type="validation_error",
+        )
+
+    encoded = base64.b64encode(file_content).decode("utf-8")
+    return ResponseBuilder.build_response(
+        data={
+            "activity_id": activity_id,
+            **format_data,
+            "size_bytes": len(file_content),
+            "content_base64": encoded,
+            "note": f"File content is base64 encoded. Decode to get {label} file.",
+        },
+        query_type=query_type,
+        metadata={"bytes": len(file_content), "encoding": "base64"},
+    )
 
 
 async def get_recent_activities(
@@ -487,17 +583,22 @@ async def delete_activity(
 
 async def download_activity_file(
     activity_id: Annotated[str, "Activity ID to download"],
-    output_path: Annotated[str | None, "Path to save the file (optional)"] = None,
+    output_path: Annotated[
+        str | None,
+        "Optional relative filename; the file is saved inside the server's "
+        "scratch directory. Omit to get base64 content inline (small files only).",
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """Download the original activity file.
 
     Downloads the original file that was uploaded to Intervals.icu (FIT, TCX, or GPX).
-    Can optionally save to a specified path.
+    Files above the inline limit (~5 MB) must be saved via output_path.
 
     Args:
         activity_id: The unique ID of the activity
-        output_path: Optional path to save the file (e.g., "/path/to/activity.fit")
+        output_path: Optional relative filename (e.g., "activity.fit"), saved
+            inside the server's scratch directory
 
     Returns:
         JSON string with file info and base64-encoded content (if no output_path)
@@ -508,42 +609,13 @@ async def download_activity_file(
     try:
         async with ICUClient(config) as client:
             file_content = await client.download_activity_file(activity_id)
-
-            if output_path:
-                # Save to file
-                import os
-
-                os.makedirs(
-                    os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
-                    exist_ok=True,
-                )
-                with open(output_path, "wb") as f:
-                    f.write(file_content)
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "saved_to": output_path,
-                        "size_bytes": len(file_content),
-                    },
-                    query_type="download_activity_file",
-                    metadata={"message": f"Activity file saved to {output_path}"},
-                )
-            else:
-                # Return base64 encoded
-                import base64
-
-                encoded = base64.b64encode(file_content).decode("utf-8")
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "size_bytes": len(file_content),
-                        "content_base64": encoded,
-                        "note": "File content is base64 encoded. Decode to get original file.",
-                    },
-                    query_type="download_activity_file",
-                )
+            return _build_download_response(
+                activity_id=activity_id,
+                file_content=file_content,
+                output_path=output_path,
+                query_type="download_activity_file",
+                format_label=None,
+            )
 
     except ICUAPIError as e:
         return ResponseBuilder.build_error_response(e.message, error_type="api_error")
@@ -555,7 +627,11 @@ async def download_activity_file(
 
 async def download_fit_file(
     activity_id: Annotated[str, "Activity ID to download"],
-    output_path: Annotated[str | None, "Path to save the FIT file (optional)"] = None,
+    output_path: Annotated[
+        str | None,
+        "Optional relative filename; the file is saved inside the server's "
+        "scratch directory. Omit to get base64 content inline (small files only).",
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """Download activity as a FIT file.
@@ -565,7 +641,8 @@ async def download_fit_file(
 
     Args:
         activity_id: The unique ID of the activity
-        output_path: Optional path to save the file (e.g., "/path/to/activity.fit")
+        output_path: Optional relative filename (e.g., "activity.fit"), saved
+            inside the server's scratch directory
 
     Returns:
         JSON string with file info and base64-encoded content (if no output_path)
@@ -576,44 +653,13 @@ async def download_fit_file(
     try:
         async with ICUClient(config) as client:
             file_content = await client.download_fit_file(activity_id)
-
-            if output_path:
-                # Save to file
-                import os
-
-                os.makedirs(
-                    os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
-                    exist_ok=True,
-                )
-                with open(output_path, "wb") as f:
-                    f.write(file_content)
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "format": "FIT",
-                        "saved_to": output_path,
-                        "size_bytes": len(file_content),
-                    },
-                    query_type="download_fit_file",
-                    metadata={"message": f"FIT file saved to {output_path}"},
-                )
-            else:
-                # Return base64 encoded
-                import base64
-
-                encoded = base64.b64encode(file_content).decode("utf-8")
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "format": "FIT",
-                        "size_bytes": len(file_content),
-                        "content_base64": encoded,
-                        "note": "File content is base64 encoded. Decode to get FIT file.",
-                    },
-                    query_type="download_fit_file",
-                )
+            return _build_download_response(
+                activity_id=activity_id,
+                file_content=file_content,
+                output_path=output_path,
+                query_type="download_fit_file",
+                format_label="FIT",
+            )
 
     except ICUAPIError as e:
         return ResponseBuilder.build_error_response(e.message, error_type="api_error")
@@ -625,7 +671,11 @@ async def download_fit_file(
 
 async def download_gpx_file(
     activity_id: Annotated[str, "Activity ID to download"],
-    output_path: Annotated[str | None, "Path to save the GPX file (optional)"] = None,
+    output_path: Annotated[
+        str | None,
+        "Optional relative filename; the file is saved inside the server's "
+        "scratch directory. Omit to get base64 content inline (small files only).",
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
     """Download activity as a GPX file.
@@ -635,7 +685,8 @@ async def download_gpx_file(
 
     Args:
         activity_id: The unique ID of the activity
-        output_path: Optional path to save the file (e.g., "/path/to/activity.gpx")
+        output_path: Optional relative filename (e.g., "activity.gpx"), saved
+            inside the server's scratch directory
 
     Returns:
         JSON string with file info and base64-encoded content (if no output_path)
@@ -646,44 +697,13 @@ async def download_gpx_file(
     try:
         async with ICUClient(config) as client:
             file_content = await client.download_gpx_file(activity_id)
-
-            if output_path:
-                # Save to file
-                import os
-
-                os.makedirs(
-                    os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
-                    exist_ok=True,
-                )
-                with open(output_path, "wb") as f:
-                    f.write(file_content)
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "format": "GPX",
-                        "saved_to": output_path,
-                        "size_bytes": len(file_content),
-                    },
-                    query_type="download_gpx_file",
-                    metadata={"message": f"GPX file saved to {output_path}"},
-                )
-            else:
-                # Return base64 encoded
-                import base64
-
-                encoded = base64.b64encode(file_content).decode("utf-8")
-
-                return ResponseBuilder.build_response(
-                    data={
-                        "activity_id": activity_id,
-                        "format": "GPX",
-                        "size_bytes": len(file_content),
-                        "content_base64": encoded,
-                        "note": "File content is base64 encoded. Decode to get GPX file.",
-                    },
-                    query_type="download_gpx_file",
-                )
+            return _build_download_response(
+                activity_id=activity_id,
+                file_content=file_content,
+                output_path=output_path,
+                query_type="download_gpx_file",
+                format_label="GPX",
+            )
 
     except ICUAPIError as e:
         return ResponseBuilder.build_error_response(e.message, error_type="api_error")
