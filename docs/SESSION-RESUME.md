@@ -22,15 +22,14 @@ Every requirement R1–R16 implemented test-first (`f30c4e6`..`1beab4c`), gate g
   new tools: `get_power_model`, `get_power_vs_hr_trend`, `get_activity_curves`, `get_interval_stats`,
   `get_activity_segments` (56 → 61 tools)
 
-`Updates/02–05` archived. `Updates/01` stays until the R1 deploy + Firestore token flush complete.
-**BLOCKED ON STEPHEN (only remaining work):** create the Google OAuth client (Console; decision made:
-workspace `stephen@bramblepathdigital.com` + Internal consent) → store the 2 secrets → `gcloud auth
-login` → deploy go-ahead. **⚠ Deploying `main` without the new secrets will fail at boot (fail-closed
-R1) — create the secrets first.** Deploy adds:
-`--set-secrets=...,GOOGLE_OAUTH_CLIENT_ID=GOOGLE_OAUTH_CLIENT_ID:latest,GOOGLE_OAUTH_CLIENT_SECRET=GOOGLE_OAUTH_CLIENT_SECRET:latest`
-and env `MCP_ALLOWED_EMAILS=stephen@bramblepathdigital.com` (leave `ENABLE_WRITE_TOOLS` unset).
-Post-deploy: one-time Firestore `oauth_state/singleton` flush, re-authorize connector, archive
-`Updates/01`.
+**DEPLOYED 2026-07-06:** revisions `00019-w56` → `00020-dls` (Google OAuth client created, secrets in
+Secret Manager, accessor granted). Verified live: unattended `register → authorize` 302s to
+accounts.google.com with no code issued; Firestore `oauth_state/singleton` flushed (deleted → fresh
+revision → confirmed 404). ALL `Updates/01–05` archived. Deploy command now carries the two
+`GOOGLE_OAUTH_*` secrets + `MCP_ALLOWED_EMAILS=stephen@bramblepathdigital.com`; `ENABLE_WRITE_TOOLS`
+unset (deletes off in prod).
+**Only remaining step: re-authorize the claude.ai connector once as stephen@bramblepathdigital.com**
+(all pre-hardening tokens are dead by design).
 
 ---
 
