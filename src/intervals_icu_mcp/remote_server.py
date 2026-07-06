@@ -11,6 +11,12 @@ Required env vars at runtime:
     INTERVALS_ICU_ATHLETE_ID athlete id, e.g. "i12345"
     MCP_SERVER_URL           public HTTPS base URL of this service
     PORT                     bind port (Cloud Run sets this)
+    GOOGLE_OAUTH_CLIENT_ID   Google OAuth 2.0 Web client id (Secret Manager)
+    GOOGLE_OAUTH_CLIENT_SECRET  Google OAuth 2.0 Web client secret (Secret Manager)
+    MCP_ALLOWED_EMAILS       comma-separated Google emails allowed to authorize
+                             (single-user: exactly one address). The OAuth flow
+                             is fail-closed: the server refuses to start if the
+                             Google gate is not fully configured.
 
 Optional:
     OAUTH_TOKEN_STORE        "memory" (default) or "firestore". When set to
@@ -30,13 +36,19 @@ import logging
 import os
 from typing import Any
 
-from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 import intervals_icu_mcp.server as server_module  # noqa: F401  # registers all tools
-from intervals_icu_mcp.firestore_oauth import FirestoreOAuthProvider
+from intervals_icu_mcp.google_oauth import (
+    GOOGLE_CALLBACK_PATH,
+    GoogleGatedFirestoreOAuthProvider,
+    GoogleGatedInMemoryOAuthProvider,
+    GoogleGateProvider,
+    GoogleOAuthConfig,
+    make_google_callback_handler,
+)
 
 logger = logging.getLogger("intervals_icu_mcp.remote")
 
@@ -62,26 +74,39 @@ def main() -> None:
         default_scopes=["mcp"],
     )
     revocation_options = RevocationOptions(enabled=True)
+    # Fail-closed: raises if the Google client or allowlist is not configured,
+    # so the server can never boot with the old auto-approve OAuth flow (SEC-1).
+    google_config = GoogleOAuthConfig.from_env(server_url)
     token_store = os.getenv("OAUTH_TOKEN_STORE", "memory").lower()
     if token_store == "firestore":
-        mcp.auth = FirestoreOAuthProvider(
+        auth_provider: GoogleGateProvider = GoogleGatedFirestoreOAuthProvider(
             base_url=server_url,
             client_registration_options=client_registration_options,
             revocation_options=revocation_options,
             required_scopes=["mcp"],
+            google_config=google_config,
             project=os.getenv("OAUTH_FIRESTORE_PROJECT") or None,
             collection=os.getenv("OAUTH_FIRESTORE_COLLECTION", "oauth_state"),
             document_id=os.getenv("OAUTH_FIRESTORE_DOCUMENT", "singleton"),
         )
         logger.info("Using Firestore-backed OAuth token store")
     else:
-        mcp.auth = InMemoryOAuthProvider(
+        auth_provider = GoogleGatedInMemoryOAuthProvider(
             base_url=server_url,
             client_registration_options=client_registration_options,
             revocation_options=revocation_options,
             required_scopes=["mcp"],
+            google_config=google_config,
         )
         logger.info("Using in-memory OAuth token store (state will not survive revisions)")
+    mcp.auth = auth_provider
+    mcp.custom_route(GOOGLE_CALLBACK_PATH, methods=["GET"])(
+        make_google_callback_handler(auth_provider)
+    )
+    logger.info(
+        "OAuth authorize is gated by Google Sign-In (%d allowlisted email(s))",
+        len(google_config.allowed_emails),
+    )
 
     # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
     # to /.well-known/oauth-protected-resource (no suffix), but only the

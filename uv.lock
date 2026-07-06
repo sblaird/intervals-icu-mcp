@@ -586,6 +586,7 @@ name = "intervals-icu-mcp"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "authlib" },
     { name = "fastmcp" },
     { name = "google-cloud-firestore" },
     { name = "httpx" },
@@ -605,6 +606,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "authlib", specifier = ">=1.6.5" },
     { name = "fastmcp", specifier = ">=2.12.4" },
     { name = "google-cloud-firestore", specifier = ">=2.21.0" },
     { name = "httpx", specifier = ">=0.28.1" },
