@@ -1,10 +1,33 @@
 # Session Resume — intervals.icu MCP connector
 
-**Last updated:** 2026-07-05 · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
+**Last updated:** 2026-07-06 · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
 
-Read this first to resume. It captures everything from the 2026-07-03→05 sessions: the shipped bug
-fixes, the connector review, the hardening plan, the four resolved decisions, and the **in-flight R1
-Google-OAuth setup** you were mid-way through.
+Read this first to resume.
+
+## ⚡ 2026-07-06 session: Phase 0 + Phase 1 CODE COMPLETE (not yet deployed)
+
+All six requirements implemented, test-first, one commit each (`f30c4e6`..`68cf464`), gate green
+(**228 tests · ruff clean · pyright 0 errors**):
+
+- **R1** Google-identity OAuth gate (`google_oauth.py`; fail-closed — server refuses to boot
+  without `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/`MCP_ALLOWED_EMAILS`)
+- **R2** `ENABLE_WRITE_TOOLS` gates the 5 deletes + `apply_sport_settings` (default OFF)
+- **R3** stream caps (`max_samples`=3000 default, `resolution` override, truncation metadata)
+- **R4** download guards (5 MB inline limit; `output_path` confined to `DOWNLOAD_SCRATCH_DIR`)
+- **R5** `compare_route_similarity(include_paths=False)` default strips latlngs
+- **R6** `parse_list_resilient` on all 14 list sites + `dropped_count` metadata; Athlete/Event/
+  HistogramBin drift-tolerant
+
+`Updates/02` archived. `Updates/01` stays until the R1 deploy + Firestore token flush complete.
+**BLOCKED ON STEPHEN:** the §5 micro-decision + Google OAuth client creation (Console), then deploy
+approval. `gcloud` creds expired — run `gcloud auth login`. NOT yet pushed to origin.
+**⚠ Deploying `main` without the new secrets will fail at boot (fail-closed R1) — create the
+secrets first.** Phases 2–4 (`Updates/03–05`) remain, unblocked.
+
+---
+
+Below: context from the 2026-07-03→05 sessions — the shipped bug fixes, the connector review, the
+hardening plan, the four resolved decisions, and the R1 Google-OAuth console setup.
 
 ---
 
@@ -49,8 +72,8 @@ All requirements live in **`Updates/`** as phase files (self-contained, acceptan
 
 | File | Phase | Requirements | Status |
 |------|-------|--------------|--------|
-| `Updates/01-critical-security.md` | 0 · Critical | R1 (Google-OAuth lock), R2 (gate destructive tools) | **In progress — see §5** |
-| `Updates/02-stability-high.md` | 1 · High | R3 stream caps, R4 download guards, R5 route-path opt-out, R6 resilient list parsing | Ready |
+| `Updates/01-critical-security.md` | 0 · Critical | R1 (Google-OAuth lock), R2 (gate destructive tools) | **Code done — deploy pending (see §5)** |
+| `Updates/Archive/02-stability-high.md` | 1 · High | R3 stream caps, R4 download guards, R5 route-path opt-out, R6 resilient list parsing | **Done 2026-07-06** |
 | `Updates/03-medium-hardening.md` | 2 · Medium | R7 Firestore resilience, R8 retry/backoff, R9 generic errors, R10 non-root container | Ready |
 | `Updates/04-polish.md` | 3 · Low | R11 unify config, R12 date hardening, R13 handler logging | Ready |
 | `Updates/05-data-enrichment.md` | 4 · Data | R14 Activity fields, R15 wellness vo2max, R16 five new tools | Ready |
@@ -113,13 +136,15 @@ after reboot (`gcloud auth login` — interactive, run it yourself).
 
 ## 6. Next actions (resume checklist)
 
-1. [ ] Answer the §5 micro-decision (email + consent-screen type).
+1. [ ] Answer the §5 micro-decision (email + consent-screen type). ← **only remaining blocker**
 2. [ ] Create the Google OAuth client (Console) + store the two secrets (`gcloud`, above).
-3. [ ] Fold the §5 prerequisites into `Updates/01-critical-security.md`; set `MCP_ALLOWED_EMAILS`.
-4. [ ] Decide whether to **commit** the untracked planning docs (see §7).
-5. [ ] Implement, in order: R1 → R2 (Phase 0), then Phases 1–4. One requirement per commit; keep the
-       green gate. R1 pauses for: Google client creation (done in step 2), deploy approval, and the
-       one-time Firestore token flush.
+3. [x] Fold the §5 prerequisites into `Updates/01-critical-security.md`. (2026-07-06)
+4. [x] Planning docs committed (`1ee7612`).
+5. [x] Phase 0 code (R1+R2) + Phase 1 (R3–R6) implemented, committed, gate green. (2026-07-06)
+6. [ ] Deploy with new secrets + `MCP_ALLOWED_EMAILS` + `ENABLE_WRITE_TOOLS` unset (needs go-ahead);
+       then the one-time Firestore `oauth_state/singleton` flush; re-authorize connector; archive
+       `Updates/01`.
+7. [ ] `git push` (needs go-ahead). Phases 2–4 (`Updates/03–05`) — unblocked, not started.
 
 ---
 
