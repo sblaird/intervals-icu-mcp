@@ -1,6 +1,8 @@
 """Async HTTP client for Intervals.icu API."""
 
+import asyncio
 import logging
+import random
 from typing import Any, Generic, NamedTuple, TypeVar, cast
 
 import httpx
@@ -191,6 +193,52 @@ class ICUClient:
         if self._client:
             await self._client.aclose()
 
+    # R8 (STB-M3): retry budget for transient upstream failures. Worst case
+    # (2 retries at 0.5s/1s + jitter) stays well inside the 30s client timeout.
+    MAX_RETRIES = 2
+    RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+    RETRY_BASE_DELAY_SECONDS = 0.5
+    RETRY_MAX_DELAY_SECONDS = 10.0
+
+    def _retry_delay(self, attempt: int, retry_after: str | None) -> float:
+        """Jittered exponential backoff; a parseable Retry-After header wins."""
+        if retry_after:
+            try:
+                return min(float(retry_after), self.RETRY_MAX_DELAY_SECONDS)
+            except ValueError:
+                pass
+        return self.RETRY_BASE_DELAY_SECONDS * (2**attempt) + random.uniform(0, 0.25)
+
+    def _finalize_response(
+        self, response: httpx.Response, method: str, endpoint: str
+    ) -> httpx.Response:
+        """Map error statuses to ICUAPIError; return successful responses."""
+        if response.status_code == 401:
+            raise ICUAPIError("Unauthorized. Check your API key and athlete ID.", 401)
+
+        if response.status_code == 404:
+            raise ICUAPIError("Resource not found.", 404)
+
+        if response.status_code == 429:
+            raise ICUAPIError("Rate limit exceeded. Please try again later.", 429)
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body = e.response.text[:500] if e.response.text else ""
+            logger.warning(
+                "ICU API HTTP %s on %s %s | body=%s",
+                e.response.status_code,
+                method,
+                endpoint,
+                body,
+            )
+            raise ICUAPIError(
+                f"HTTP {e.response.status_code}: {body}",
+                e.response.status_code,
+            ) from e
+        return response
+
     async def _request(
         self,
         method: str,
@@ -198,6 +246,10 @@ class ICUClient:
         **kwargs: Any,
     ) -> httpx.Response:
         """Make an authenticated request to the API.
+
+        Transient failures (429/500/502/503/504 and connection errors) are
+        retried up to MAX_RETRIES times with jittered exponential backoff,
+        honouring Retry-After on 429 (R8). Other 4xx fail immediately.
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
@@ -213,38 +265,43 @@ class ICUClient:
         if not self._client:
             raise RuntimeError("Client not initialized. Use async context manager.")
 
-        try:
-            response = await self._client.request(method, endpoint, **kwargs)
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                response = await self._client.request(method, endpoint, **kwargs)
+            except httpx.RequestError as e:
+                if attempt < self.MAX_RETRIES:
+                    delay = self._retry_delay(attempt, None)
+                    logger.warning(
+                        "ICU API request error on %s %s (attempt %d/%d): %s; retrying in %.2fs",
+                        method,
+                        endpoint,
+                        attempt + 1,
+                        self.MAX_RETRIES + 1,
+                        e,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning("ICU API request failed on %s %s: %s", method, endpoint, e)
+                raise ICUAPIError(f"Request failed: {str(e)}") from e
 
-            # Handle specific error codes
-            if response.status_code == 401:
-                raise ICUAPIError("Unauthorized. Check your API key and athlete ID.", 401)
+            if response.status_code in self.RETRYABLE_STATUS_CODES and attempt < self.MAX_RETRIES:
+                delay = self._retry_delay(attempt, response.headers.get("Retry-After"))
+                logger.warning(
+                    "ICU API HTTP %d on %s %s (attempt %d/%d); retrying in %.2fs",
+                    response.status_code,
+                    method,
+                    endpoint,
+                    attempt + 1,
+                    self.MAX_RETRIES + 1,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
 
-            if response.status_code == 404:
-                raise ICUAPIError("Resource not found.", 404)
+            return self._finalize_response(response, method, endpoint)
 
-            if response.status_code == 429:
-                raise ICUAPIError("Rate limit exceeded. Please try again later.", 429)
-
-            response.raise_for_status()
-            return response
-
-        except httpx.HTTPStatusError as e:
-            body = e.response.text[:500] if e.response.text else ""
-            logger.warning(
-                "ICU API HTTP %s on %s %s | body=%s",
-                e.response.status_code,
-                method,
-                endpoint,
-                body,
-            )
-            raise ICUAPIError(
-                f"HTTP {e.response.status_code}: {body}",
-                e.response.status_code,
-            ) from e
-        except httpx.RequestError as e:
-            logger.warning("ICU API request failed on %s %s: %s", method, endpoint, e)
-            raise ICUAPIError(f"Request failed: {str(e)}") from e
+        raise AssertionError("unreachable: retry loop always returns or raises")
 
     # ==================== Athlete Endpoints ====================
 
