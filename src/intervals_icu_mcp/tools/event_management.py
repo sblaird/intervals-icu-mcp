@@ -8,7 +8,7 @@ from fastmcp import Context
 from pydantic import AliasChoices, Field
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..response_builder import ResponseBuilder
 
 _DATETIME_HELP = (
@@ -517,7 +517,8 @@ async def bulk_create_events(
                 event_data["description"] = _expand_repeat_blocks(event_data["description"])
 
         async with ICUClient(config) as client:
-            created_events = await client.bulk_create_events(events_data)
+            created_events, dropped = await client.bulk_create_events(events_data)
+            dropped_meta = dropped_items_metadata(dropped, label="created event")
 
             events_result: list[dict[str, Any]] = []
             for event in created_events:
@@ -547,6 +548,7 @@ async def bulk_create_events(
                 metadata={
                     "message": f"Successfully created {len(created_events)} events",
                     "count": len(created_events),
+                    **dropped_meta,
                 },
             )
 

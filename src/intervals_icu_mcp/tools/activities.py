@@ -10,7 +10,7 @@ from fastmcp import Context
 from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 from ..subjective_scales import (
@@ -145,15 +145,16 @@ async def get_recent_activities(
         oldest = oldest_date.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
-            activities = await client.get_activities(
+            activities, dropped = await client.get_activities(
                 oldest=oldest,
                 limit=min(limit, 100),  # Cap at 100
             )
+            dropped_meta = dropped_items_metadata(dropped, label="activity")
 
             if not activities:
                 return ResponseBuilder.build_response(
                     data={"activities": [], "count": 0},
-                    metadata={"message": "No activities found"},
+                    metadata={"message": "No activities found", **dropped_meta},
                 )
 
             activities_data: list[dict[str, Any]] = []
@@ -195,6 +196,7 @@ async def get_recent_activities(
             return ResponseBuilder.build_response(
                 data={"activities": activities_data, "count": len(activities_data)},
                 query_type="recent_activities",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -372,15 +374,16 @@ async def search_activities(
 
     try:
         async with ICUClient(config) as client:
-            results = await client.search_activities(
+            results, dropped = await client.search_activities(
                 query=query,
                 limit=min(limit, 100),  # Cap at 100
             )
+            dropped_meta = dropped_items_metadata(dropped, label="activity search result")
 
             if not results:
                 return ResponseBuilder.build_response(
                     data={"activities": [], "count": 0, "query": query},
-                    metadata={"message": f"No activities found matching '{query}'"},
+                    metadata={"message": f"No activities found matching '{query}'", **dropped_meta},
                 )
 
             activities_data: list[dict[str, Any]] = []
@@ -403,6 +406,7 @@ async def search_activities(
             return ResponseBuilder.build_response(
                 data={"activities": activities_data, "count": len(activities_data), "query": query},
                 query_type="search_activities",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -742,15 +746,16 @@ async def search_activities_full(
 
     try:
         async with ICUClient(config) as client:
-            activities = await client.search_activities_full(
+            activities, dropped = await client.search_activities_full(
                 query=query,
                 limit=min(limit, 100),
             )
+            dropped_meta = dropped_items_metadata(dropped, label="activity")
 
             if not activities:
                 return ResponseBuilder.build_response(
                     data={"activities": [], "count": 0, "query": query},
-                    metadata={"message": f"No activities found matching '{query}'"},
+                    metadata={"message": f"No activities found matching '{query}'", **dropped_meta},
                 )
 
             activities_data: list[dict[str, Any]] = []
@@ -798,6 +803,7 @@ async def search_activities_full(
                     "query": query,
                 },
                 query_type="search_activities_full",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -831,10 +837,11 @@ async def get_activities_around(
 
     try:
         async with ICUClient(config) as client:
-            activities = await client.get_activities_around(
+            activities, dropped = await client.get_activities_around(
                 activity_id=activity_id,
                 count=count,
             )
+            dropped_meta = dropped_items_metadata(dropped, label="activity")
 
             if not activities:
                 return ResponseBuilder.build_response(
@@ -843,7 +850,10 @@ async def get_activities_around(
                         "count": 0,
                         "reference_activity_id": activity_id,
                     },
-                    metadata={"message": "No activities found around the reference activity"},
+                    metadata={
+                        "message": "No activities found around the reference activity",
+                        **dropped_meta,
+                    },
                 )
 
             # Sort by date. start_date_local is Optional here; give the key a
@@ -909,6 +919,7 @@ async def get_activities_around(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="activities_around",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:

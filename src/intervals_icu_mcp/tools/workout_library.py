@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastmcp import Context
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..response_builder import ResponseBuilder
 
 
@@ -27,13 +27,15 @@ async def get_workout_library(
 
     try:
         async with ICUClient(config) as client:
-            folders = await client.get_workout_folders()
+            folders, dropped = await client.get_workout_folders()
+            dropped_meta = dropped_items_metadata(dropped, label="folder")
 
             if not folders:
                 return ResponseBuilder.build_response(
                     data={"folders": [], "count": 0},
                     metadata={
-                        "message": "No workout folders found. Create folders in Intervals.icu to organize your workouts."
+                        "message": "No workout folders found. Create folders in Intervals.icu to organize your workouts.",
+                        **dropped_meta,
                     },
                 )
 
@@ -81,6 +83,7 @@ async def get_workout_library(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="workout_library",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -111,12 +114,16 @@ async def get_workouts_in_folder(
 
     try:
         async with ICUClient(config) as client:
-            workouts = await client.get_workouts_in_folder(folder_id)
+            workouts, dropped = await client.get_workouts_in_folder(folder_id)
+            dropped_meta = dropped_items_metadata(dropped, label="workout")
 
             if not workouts:
                 return ResponseBuilder.build_response(
                     data={"workouts": [], "count": 0, "folder_id": folder_id},
-                    metadata={"message": f"No workouts found in folder {folder_id}"},
+                    metadata={
+                        "message": f"No workouts found in folder {folder_id}",
+                        **dropped_meta,
+                    },
                 )
 
             workouts_data: list[dict[str, Any]] = []
@@ -178,6 +185,7 @@ async def get_workouts_in_folder(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="folder_workouts",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:

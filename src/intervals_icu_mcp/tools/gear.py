@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastmcp import Context
 
 from ..auth import load_config, validate_credentials
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..response_builder import ResponseBuilder
 
 
@@ -25,11 +25,12 @@ async def get_gear_list(
 
     try:
         async with ICUClient(config) as client:
-            gear_list = await client.get_gear()
+            gear_list, dropped = await client.get_gear()
+            dropped_meta = dropped_items_metadata(dropped, label="gear")
 
             if not gear_list:
                 return ResponseBuilder.build_response(
-                    {"message": "No gear items found"}, metadata={"count": 0}
+                    {"message": "No gear items found"}, metadata={"count": 0, **dropped_meta}
                 )
 
             gear_data: list[dict[str, Any]] = []
@@ -100,7 +101,8 @@ async def get_gear_list(
                 gear_data.append(gear_info)
 
             return ResponseBuilder.build_response(
-                {"gear": gear_data}, metadata={"count": len(gear_list), "type": "gear_list"}
+                {"gear": gear_data},
+                metadata={"count": len(gear_list), "type": "gear_list", **dropped_meta},
             )
 
     except ICUAPIError as e:

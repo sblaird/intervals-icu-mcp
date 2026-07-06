@@ -7,7 +7,7 @@ from fastmcp import Context
 from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 from ..subjective_scales import WELLNESS_SCALE_NOTE, wellness_label
@@ -54,15 +54,19 @@ async def get_wellness_data(
         newest = datetime.now().strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
-            wellness_records = await client.get_wellness(
+            wellness_records, dropped = await client.get_wellness(
                 oldest=oldest,
                 newest=newest,
             )
+            dropped_meta = dropped_items_metadata(dropped, label="wellness")
 
             if not wellness_records:
                 return ResponseBuilder.build_response(
                     data={"wellness_data": [], "count": 0},
-                    metadata={"message": f"No wellness data found for the last {days_back} days"},
+                    metadata={
+                        "message": f"No wellness data found for the last {days_back} days",
+                        **dropped_meta,
+                    },
                 )
 
             # Sort by date (most recent first)
@@ -191,6 +195,7 @@ async def get_wellness_data(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="wellness_data",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:

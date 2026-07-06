@@ -7,7 +7,7 @@ from fastmcp import Context
 from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceStrList, optional_str_list_schema
 from ..response_builder import ResponseBuilder
 
@@ -259,12 +259,13 @@ async def get_activity_intervals(
 
     try:
         async with ICUClient(config) as client:
-            intervals = await client.get_activity_intervals(activity_id)
+            intervals, dropped = await client.get_activity_intervals(activity_id)
+            dropped_meta = dropped_items_metadata(dropped, label="interval")
 
             if not intervals:
                 return ResponseBuilder.build_response(
                     data={"intervals": [], "count": 0, "activity_id": activity_id},
-                    metadata={"message": "No intervals found for this activity"},
+                    metadata={"message": "No intervals found for this activity", **dropped_meta},
                 )
 
             intervals_data: list[dict[str, Any]] = []
@@ -337,6 +338,7 @@ async def get_activity_intervals(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="activity_intervals",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -373,12 +375,13 @@ async def get_best_efforts(
 
     try:
         async with ICUClient(config) as client:
-            best_efforts = await client.get_best_efforts(activity_id, stream=stream)
+            best_efforts, dropped = await client.get_best_efforts(activity_id, stream=stream)
+            dropped_meta = dropped_items_metadata(dropped, label="best effort")
 
             if not best_efforts:
                 return ResponseBuilder.build_response(
                     data={"best_efforts": [], "count": 0, "activity_id": activity_id},
-                    metadata={"message": "No best efforts found for this activity"},
+                    metadata={"message": "No best efforts found for this activity", **dropped_meta},
                 )
 
             efforts_data: list[dict[str, Any]] = []
@@ -426,6 +429,7 @@ async def get_best_efforts(
             return ResponseBuilder.build_response(
                 data=result_data,
                 query_type="best_efforts",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -571,6 +575,9 @@ async def get_power_histogram(
 
             bins_data: list[dict[str, Any]] = []
             for bin_item in histogram.bins:
+                # Skip drifted bins (fields are Optional in the model, R6).
+                if bin_item.min is None or bin_item.max is None or bin_item.count is None:
+                    continue
                 bin_data: dict[str, Any] = {
                     "power_range": {"min_watts": int(bin_item.min), "max_watts": int(bin_item.max)},
                     "count": bin_item.count,
@@ -631,6 +638,9 @@ async def get_hr_histogram(
 
             bins_data: list[dict[str, Any]] = []
             for bin_item in histogram.bins:
+                # Skip drifted bins (fields are Optional in the model, R6).
+                if bin_item.min is None or bin_item.max is None or bin_item.count is None:
+                    continue
                 bin_data: dict[str, Any] = {
                     "hr_range": {"min_bpm": int(bin_item.min), "max_bpm": int(bin_item.max)},
                     "count": bin_item.count,
@@ -691,6 +701,9 @@ async def get_pace_histogram(
 
             bins_data: list[dict[str, Any]] = []
             for bin_item in histogram.bins:
+                # Skip drifted bins (fields are Optional in the model, R6).
+                if bin_item.min is None or bin_item.max is None or bin_item.count is None:
+                    continue
                 # Convert pace from min/km to formatted string
                 min_minutes = int(bin_item.min)
                 min_seconds = int((bin_item.min - min_minutes) * 60)
@@ -762,6 +775,9 @@ async def get_gap_histogram(
 
             bins_data: list[dict[str, Any]] = []
             for bin_item in histogram.bins:
+                # Skip drifted bins (fields are Optional in the model, R6).
+                if bin_item.min is None or bin_item.max is None or bin_item.count is None:
+                    continue
                 # Convert GAP from min/km to formatted string
                 min_minutes = int(bin_item.min)
                 min_seconds = int((bin_item.min - min_minutes) * 60)

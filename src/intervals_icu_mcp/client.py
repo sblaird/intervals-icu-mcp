@@ -1,10 +1,10 @@
 """Async HTTP client for Intervals.icu API."""
 
 import logging
-from typing import Any, NamedTuple, cast
+from typing import Any, Generic, NamedTuple, TypeVar, cast
 
 import httpx
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .auth import ICUConfig
 from .models import (
@@ -83,6 +83,76 @@ class ICUAPIError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(self.message)
+
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+class ParsedList(NamedTuple, Generic[ModelT]):
+    """A resiliently-parsed list plus info about any items dropped (R6)."""
+
+    items: list[ModelT]
+    dropped: list[dict[str, Any]]
+
+
+def parse_list_resilient(raw: Any, model: type[ModelT], *, label: str) -> ParsedList[ModelT]:
+    """Validate a list payload per-item, dropping only the items that fail.
+
+    Atomic ``TypeAdapter(list[Model]).validate_python`` fails the entire call
+    when one item drifts — the exact mechanism behind the latlng and
+    SportSettings breakages. Instead, validate each item and drop only the
+    malformed ones, logging what was dropped so failures stay diagnosable
+    from Cloud Run logs.
+
+    Args:
+        raw: The decoded JSON payload (must be a list).
+        model: Pydantic model to validate each item against.
+        label: Human-readable item label for logs/metadata.
+
+    Returns:
+        ParsedList of validated items plus per-drop info
+        (``{"index": int, "fields": [str, ...]}``).
+
+    Raises:
+        ICUAPIError: If the payload is not a list at all (an error body, not
+            item drift).
+    """
+    if not isinstance(raw, list):
+        raise ICUAPIError(f"Expected a list of {label} items, got {type(raw).__name__}")
+    items: list[ModelT] = []
+    dropped: list[dict[str, Any]] = []
+    for index, entry in enumerate(cast("list[Any]", raw)):
+        try:
+            items.append(model.model_validate(entry))
+        except ValidationError as exc:
+            fields = sorted({str(err["loc"][0]) for err in exc.errors() if err.get("loc")})
+            logger.warning(
+                "Dropping malformed %s item %d (bad fields: %s)",
+                label,
+                index,
+                ", ".join(fields) or "<unknown>",
+            )
+            dropped.append({"index": index, "fields": fields})
+    return ParsedList(items, dropped)
+
+
+def dropped_items_metadata(dropped: list[dict[str, Any]], *, label: str) -> dict[str, Any]:
+    """Metadata fragment for tool responses when a parsed list is partial.
+
+    Empty dict when nothing was dropped; otherwise dropped_count (+ which
+    fields failed, for small N) so the LLM doesn't read a partial list as
+    complete.
+    """
+    if not dropped:
+        return {}
+    meta: dict[str, Any] = {
+        "partial": True,
+        "dropped_count": len(dropped),
+        "message": f"{len(dropped)} {label} item(s) were malformed upstream and omitted",
+    }
+    if len(dropped) <= 5:
+        meta["dropped_items"] = dropped
+    return meta
 
 
 class ICUClient:
@@ -199,7 +269,7 @@ class ICUClient:
         oldest: str | None = None,
         newest: str | None = None,
         limit: int = 30,
-    ) -> list[ActivitySummary]:
+    ) -> ParsedList[ActivitySummary]:
         """List activities for a date range.
 
         Args:
@@ -209,7 +279,7 @@ class ICUClient:
             limit: Maximum number of activities to return
 
         Returns:
-            List of ActivitySummary objects
+            ParsedList of ActivitySummary objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {}
@@ -220,28 +290,8 @@ class ICUClient:
             params["newest"] = newest
 
         response = await self._request("GET", f"/athlete/{athlete_id}/activities", params=params)
-        # Parse per-item so one bad entry from upstream doesn't fail the whole list.
-        # The model now allows missing/extra fields, but we still log dropped items.
-        raw = response.json()
-        if not isinstance(raw, list):
-            raise ICUAPIError(f"Expected list, got {type(raw).__name__}: {raw!r:.200}")
-        activities: list[ActivitySummary] = []
-        skipped = 0
-        for item in cast("list[Any]", raw):
-            try:
-                activities.append(ActivitySummary.model_validate(item))
-            except ValidationError as exc:
-                skipped += 1
-                logger.warning(
-                    "skipping unparseable activity: %s | item keys=%s",
-                    exc,
-                    list(cast("dict[str, Any]", item).keys())
-                    if isinstance(item, dict)
-                    else "<not-dict>",
-                )
-        if skipped:
-            logger.info("get_activities: parsed %d, skipped %d", len(activities), skipped)
-        return activities[:limit]
+        parsed = parse_list_resilient(response.json(), ActivitySummary, label="activity")
+        return ParsedList(parsed.items[:limit], parsed.dropped)
 
     async def get_activity(self, athlete_id: str | None = None, activity_id: str = "") -> Activity:
         """Get detailed activity information.
@@ -262,7 +312,7 @@ class ICUClient:
         athlete_id: str | None = None,
         query: str = "",
         limit: int = 30,
-    ) -> list[ActivitySearchResult]:
+    ) -> ParsedList[ActivitySearchResult]:
         """Search for activities by name or tag.
 
         Args:
@@ -271,7 +321,7 @@ class ICUClient:
             limit: Maximum number of results to return
 
         Returns:
-            List of ActivitySearchResult objects
+            ParsedList of ActivitySearchResult objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {"q": query}
@@ -279,17 +329,17 @@ class ICUClient:
         response = await self._request(
             "GET", f"/athlete/{athlete_id}/activities/search", params=params
         )
-        adapter = TypeAdapter(list[ActivitySearchResult])
-        results = adapter.validate_python(response.json())
-
-        return results[:limit]
+        parsed = parse_list_resilient(
+            response.json(), ActivitySearchResult, label="activity search result"
+        )
+        return ParsedList(parsed.items[:limit], parsed.dropped)
 
     async def search_activities_full(
         self,
         athlete_id: str | None = None,
         query: str = "",
         limit: int = 30,
-    ) -> list[Activity]:
+    ) -> ParsedList[Activity]:
         """Search for activities by name or tag, returning full Activity objects.
 
         Args:
@@ -298,7 +348,7 @@ class ICUClient:
             limit: Maximum number of results to return
 
         Returns:
-            List of full Activity objects
+            ParsedList of full Activity objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {"q": query}
@@ -306,17 +356,15 @@ class ICUClient:
         response = await self._request(
             "GET", f"/athlete/{athlete_id}/activities/search-full", params=params
         )
-        adapter = TypeAdapter(list[Activity])
-        results = adapter.validate_python(response.json())
-
-        return results[:limit]
+        parsed = parse_list_resilient(response.json(), Activity, label="activity")
+        return ParsedList(parsed.items[:limit], parsed.dropped)
 
     async def get_activities_around(
         self,
         activity_id: str,
         athlete_id: str | None = None,
         count: int = 5,
-    ) -> list[Activity]:
+    ) -> ParsedList[Activity]:
         """Get activities before and after a specific activity.
 
         Args:
@@ -325,7 +373,7 @@ class ICUClient:
             count: Number of activities to return before and after (default 5)
 
         Returns:
-            List of Activity objects around the reference activity
+            ParsedList of Activity objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {"id": activity_id, "count": count}
@@ -333,8 +381,7 @@ class ICUClient:
         response = await self._request(
             "GET", f"/athlete/{athlete_id}/activities-around", params=params
         )
-        adapter = TypeAdapter(list[Activity])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Activity, label="activity")
 
     async def update_activity(
         self,
@@ -480,7 +527,7 @@ class ICUClient:
         athlete_id: str | None = None,
         oldest: str | None = None,
         newest: str | None = None,
-    ) -> list[Wellness]:
+    ) -> ParsedList[Wellness]:
         """Get wellness records for a date range.
 
         Args:
@@ -489,7 +536,7 @@ class ICUClient:
             newest: Newest date to fetch (ISO-8601 format)
 
         Returns:
-            List of Wellness records
+            ParsedList of Wellness records plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {}
@@ -500,8 +547,7 @@ class ICUClient:
             params["newest"] = newest
 
         response = await self._request("GET", f"/athlete/{athlete_id}/wellness", params=params)
-        adapter = TypeAdapter(list[Wellness])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Wellness, label="wellness")
 
     async def get_wellness_for_date(
         self,
@@ -565,7 +611,7 @@ class ICUClient:
         self,
         wellness_records: list[dict[str, Any]],
         athlete_id: str | None = None,
-    ) -> list[Wellness]:
+    ) -> ParsedList[Wellness]:
         """Bulk update wellness records.
 
         Args:
@@ -573,14 +619,14 @@ class ICUClient:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of updated Wellness records
+            ParsedList of updated Wellness records plus any dropped items
+            (the write succeeded; drops mean the echo was unparseable)
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request(
             "PUT", f"/athlete/{athlete_id}/wellness-bulk", json=wellness_records
         )
-        adapter = TypeAdapter(list[Wellness])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Wellness, label="wellness")
 
     # ==================== Event/Calendar Endpoints ====================
 
@@ -589,7 +635,7 @@ class ICUClient:
         athlete_id: str | None = None,
         oldest: str | None = None,
         newest: str | None = None,
-    ) -> list[Event]:
+    ) -> ParsedList[Event]:
         """Get calendar events (planned workouts, notes, races).
 
         Args:
@@ -598,7 +644,7 @@ class ICUClient:
             newest: Newest date to fetch (ISO-8601 format)
 
         Returns:
-            List of Event objects
+            ParsedList of Event objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         params = {}
@@ -609,8 +655,7 @@ class ICUClient:
             params["newest"] = newest
 
         response = await self._request("GET", f"/athlete/{athlete_id}/events", params=params)
-        adapter = TypeAdapter(list[Event])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Event, label="event")
 
     async def get_event(
         self,
@@ -728,33 +773,32 @@ class ICUClient:
     async def get_workout_folders(
         self,
         athlete_id: str | None = None,
-    ) -> list[Folder]:
+    ) -> ParsedList[Folder]:
         """Get workout folders and training plans.
 
         Args:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of folders/plans with workouts
+            ParsedList of folders/plans plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request("GET", f"/athlete/{athlete_id}/folders")
-        adapter = TypeAdapter(list[Folder])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Folder, label="folder")
 
     # ==================== Activity Analysis Endpoints ====================
 
     async def get_activity_intervals(
         self,
         activity_id: str,
-    ) -> list[Interval]:
+    ) -> ParsedList[Interval]:
         """Get intervals for a specific activity.
 
         Args:
             activity_id: Activity ID
 
         Returns:
-            List of Interval objects
+            ParsedList of Interval objects plus any dropped items
         """
         response = await self._request("GET", f"/activity/{activity_id}/intervals")
         payload = response.json()
@@ -768,8 +812,7 @@ class ICUClient:
             )
         else:
             intervals_list = payload
-        adapter = TypeAdapter(list[Interval])
-        return adapter.validate_python(intervals_list)
+        return parse_list_resilient(intervals_list, Interval, label="interval")
 
     async def get_activity_streams(
         self,
@@ -813,7 +856,7 @@ class ICUClient:
         self,
         activity_id: str,
         stream: str = "watts",
-    ) -> list[BestEffort]:
+    ) -> ParsedList[BestEffort]:
         """Get best efforts for an activity.
 
         Args:
@@ -822,15 +865,14 @@ class ICUClient:
                 Required by the API; defaults to "watts" for cycling.
 
         Returns:
-            List of BestEffort objects
+            ParsedList of BestEffort objects plus any dropped items
         """
         response = await self._request(
             "GET",
             f"/activity/{activity_id}/best-efforts",
             params={"stream": stream},
         )
-        adapter = TypeAdapter(list[BestEffort])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), BestEffort, label="best effort")
 
     async def get_power_vs_hr(self, activity_id: str) -> dict[str, Any]:
         """Get power-vs-HR plot data for an activity (aerobic decoupling).
@@ -918,7 +960,7 @@ class ICUClient:
         self,
         folder_id: int,
         athlete_id: str | None = None,
-    ) -> list[Workout]:
+    ) -> ParsedList[Workout]:
         """Get workouts in a specific folder.
 
         Args:
@@ -926,12 +968,11 @@ class ICUClient:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of Workout objects
+            ParsedList of Workout objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request("GET", f"/athlete/{athlete_id}/folders/{folder_id}/workouts")
-        adapter = TypeAdapter(list[Workout])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Workout, label="workout")
 
     # ==================== Event Write Operations ====================
 
@@ -998,19 +1039,18 @@ class ICUClient:
     async def get_gear(
         self,
         athlete_id: str | None = None,
-    ) -> list[Gear]:
+    ) -> ParsedList[Gear]:
         """Get all gear items for an athlete.
 
         Args:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of Gear objects
+            ParsedList of Gear objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request("GET", f"/athlete/{athlete_id}/gear")
-        adapter = TypeAdapter(list[Gear])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Gear, label="gear")
 
     async def create_gear(
         self,
@@ -1123,19 +1163,18 @@ class ICUClient:
     async def get_sport_settings(
         self,
         athlete_id: str | None = None,
-    ) -> list[SportSettings]:
+    ) -> ParsedList[SportSettings]:
         """Get sport settings for an athlete.
 
         Args:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of SportSettings objects
+            ParsedList of SportSettings objects plus any dropped items
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request("GET", f"/athlete/{athlete_id}/sport-settings")
-        adapter = TypeAdapter(list[SportSettings])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), SportSettings, label="sport settings")
 
     async def update_sport_settings(
         self,
@@ -1229,7 +1268,7 @@ class ICUClient:
         self,
         events_data: list[dict[str, Any]],
         athlete_id: str | None = None,
-    ) -> list[Event]:
+    ) -> ParsedList[Event]:
         """Create multiple calendar events in a single request.
 
         Args:
@@ -1237,14 +1276,14 @@ class ICUClient:
             athlete_id: Athlete ID (uses config default if not provided)
 
         Returns:
-            List of created Event objects
+            ParsedList of created Event objects plus any dropped items
+            (the write succeeded; drops mean the echo was unparseable)
         """
         athlete_id = athlete_id or self.config.intervals_icu_athlete_id
         response = await self._request(
             "POST", f"/athlete/{athlete_id}/events/bulk", json=events_data
         )
-        adapter = TypeAdapter(list[Event])
-        return adapter.validate_python(response.json())
+        return parse_list_resilient(response.json(), Event, label="event")
 
     async def bulk_delete_events(
         self,

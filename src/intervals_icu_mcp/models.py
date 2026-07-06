@@ -55,10 +55,16 @@ class SportSettings(BaseModel):
 
 
 class Athlete(BaseModel):
-    """Full athlete profile information."""
+    """Full athlete profile information.
+
+    Drift-tolerant (R6): only `id` is required — a renamed/missing upstream
+    field must not make the whole profile unreadable.
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
     id: str
-    name: str
+    name: str | None = None
     email: str | None = None
     weight: float | None = None
     dob: str | None = None
@@ -204,10 +210,14 @@ class Wellness(BaseModel):
 
 
 class Event(BaseModel):
-    """Calendar event (planned workout, note, race, etc.)."""
+    """Calendar event (planned workout, note, race, etc.).
+
+    Drift-tolerant (R6): only `id` is required. Tools skip events without a
+    usable `start_date_local` instead of the whole calendar failing.
+    """
 
     id: int
-    start_date_local: str  # ISO-8601 date
+    start_date_local: str | None = None  # ISO-8601 date
     category: str | None = None  # WORKOUT, NOTE, RACE, GOAL
     name: str | None = None
     description: str | None = None
@@ -227,7 +237,7 @@ class Event(BaseModel):
     external_id: str | None = Field(None, alias="external_id")
     created_by_id: str | None = Field(None, alias="created_by_id")
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 
 # ==================== Workout Library Models ====================
@@ -478,11 +488,17 @@ class Gear(BaseModel):
 
 
 class HistogramBin(BaseModel):
-    """Single bin in a histogram."""
+    """Single bin in a histogram.
 
-    min: float  # Minimum value for this bin
-    max: float  # Maximum value for this bin
-    count: int  # Number of data points in this bin
+    Drift-tolerant (R6): fields are optional so one drifted bin can't fail
+    the whole histogram; tools skip bins missing min/max/count.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    min: float | None = None  # Minimum value for this bin
+    max: float | None = None  # Maximum value for this bin
+    count: int | None = None  # Number of data points in this bin
     secs: int | None = None  # Time spent in this bin (seconds)
 
 

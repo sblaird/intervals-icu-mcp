@@ -317,9 +317,11 @@ class TestActivitySummaryDefensive:
         ]
         respx_mock.get("/athlete/i123456/activities").mock(return_value=Response(200, json=items))
         async with ICUClient(mock_config) as client:
-            activities = await client.get_activities()
+            activities, dropped = await client.get_activities()
 
         # First two parse successfully; bad-date one is dropped.
         assert len(activities) == 2
         assert activities[0].id == "1"
         assert activities[1].id == "2"
+        assert len(dropped) == 1
+        assert dropped[0]["index"] == 2

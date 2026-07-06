@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastmcp import Context
 
 from ..auth import load_config, validate_credentials
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..models import SportSettings
 from ..response_builder import ResponseBuilder
 
@@ -117,11 +117,12 @@ async def get_sport_settings(
 
     try:
         async with ICUClient(config) as client:
-            settings_list = await client.get_sport_settings()
+            settings_list, dropped = await client.get_sport_settings()
+            dropped_meta = dropped_items_metadata(dropped, label="sport settings")
 
             if not settings_list:
                 return ResponseBuilder.build_response(
-                    {"message": "No sport settings found"}, metadata={"count": 0}
+                    {"message": "No sport settings found"}, metadata={"count": 0, **dropped_meta}
                 )
 
             settings_data = [_serialize_sport_settings(settings) for settings in settings_list]
@@ -138,7 +139,11 @@ async def get_sport_settings(
                         "display-only."
                     )
                 },
-                metadata={"count": len(settings_list), "type": "sport_settings_list"},
+                metadata={
+                    "count": len(settings_list),
+                    "type": "sport_settings_list",
+                    **dropped_meta,
+                },
             )
 
     except ICUAPIError as e:

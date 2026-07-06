@@ -7,7 +7,7 @@ from fastmcp import Context
 from pydantic import WithJsonSchema
 
 from ..auth import ICUConfig
-from ..client import ICUAPIError, ICUClient
+from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 
@@ -45,10 +45,11 @@ async def get_calendar_events(
         newest = newest_date.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
-            events = await client.get_events(
+            events, dropped = await client.get_events(
                 oldest=oldest,
                 newest=newest,
             )
+            dropped_meta = dropped_items_metadata(dropped, label="event")
 
             if not events:
                 return ResponseBuilder.build_response(
@@ -58,16 +59,23 @@ async def get_calendar_events(
                         "date_range": {"oldest": oldest, "newest": newest},
                     },
                     metadata={
-                        "message": "No events found on your calendar for the specified period"
+                        "message": "No events found on your calendar for the specified period",
+                        **dropped_meta,
                     },
                 )
 
-            # Sort by date
-            events.sort(key=lambda x: x.start_date_local)
+            # Sort by date. start_date_local is Optional (drift-tolerant model);
+            # give the key a total order so a null date can't raise TypeError.
+            events.sort(key=lambda x: (x.start_date_local is None, x.start_date_local or ""))
 
             # Group events by date
             events_by_date: dict[str, list[dict[str, Any]]] = {}
             for event in events:
+                # A drifted event without a date can't be grouped; skip it (the
+                # model keeps it parseable so the rest of the calendar comes
+                # through).
+                if not event.start_date_local:
+                    continue
                 # Parse leniently: upstream `start_date_local` may be either
                 # 'YYYY-MM-DD' or a full ISO-8601 datetime
                 # ('YYYY-MM-DDTHH:MM:SS') depending on how the event was
@@ -145,6 +153,7 @@ async def get_calendar_events(
                     "summary": summary,
                 },
                 query_type="calendar_events",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
@@ -180,27 +189,30 @@ async def get_upcoming_workouts(
         newest = newest_date.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
-            events = await client.get_events(
+            events, dropped = await client.get_events(
                 oldest=oldest,
                 newest=newest,
             )
+            dropped_meta = dropped_items_metadata(dropped, label="event")
 
-            # Filter for workouts only
-            workouts = [e for e in events if e.category == "WORKOUT"]
+            # Filter for workouts only (a drifted workout without a date can't
+            # be scheduled — skip it rather than crash).
+            workouts = [e for e in events if e.category == "WORKOUT" and e.start_date_local]
 
             if not workouts:
                 return ResponseBuilder.build_response(
                     data={"workouts": [], "count": 0},
-                    metadata={"message": "No workouts planned on your calendar"},
+                    metadata={"message": "No workouts planned on your calendar", **dropped_meta},
                 )
 
             # Sort by date and limit
-            workouts.sort(key=lambda x: x.start_date_local)
+            workouts.sort(key=lambda x: x.start_date_local or "")
             workouts = workouts[:limit]
 
             workouts_data: list[dict[str, Any]] = []
             for workout in workouts:
                 # Lenient: see comment in get_calendar_events.
+                assert workout.start_date_local is not None  # filtered above
                 date_obj = datetime.fromisoformat(workout.start_date_local).date()
                 today = datetime.now().date()
 
@@ -253,6 +265,7 @@ async def get_upcoming_workouts(
                     "total_planned_load": total_load if total_load > 0 else None,
                 },
                 query_type="upcoming_workouts",
+                metadata=dropped_meta or None,
             )
 
     except ICUAPIError as e:
