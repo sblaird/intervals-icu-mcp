@@ -11,8 +11,12 @@ across all MCP tools. All tools return JSON with a standard structure:
 """
 
 import json
+import logging
+import sys
 from datetime import datetime
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 
 def _convert_datetimes(obj: Any) -> Any:  # type: ignore[misc]
@@ -42,9 +46,14 @@ class ResponseBuilder:
         if dt is None:
             return None
 
-        # Parse the datetime if it's a string, otherwise use it directly
+        # Parse the datetime if it's a string, otherwise use it directly.
+        # R12 (STB-L2): an unparseable upstream date must not crash the whole
+        # tool response — return the raw value instead.
         if isinstance(dt, str):
-            parsed_dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            try:
+                parsed_dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            except ValueError:
+                return {"datetime": dt}
         else:
             parsed_dt = dt
 
@@ -122,6 +131,14 @@ class ResponseBuilder:
         Returns:
             JSON string with error structure
         """
+        # R13 (STB-L4): the ~59 blanket `except Exception` handlers all funnel
+        # through here with internal/unexpected error types. Log the active
+        # traceback centrally so unexpected failures are diagnosable from
+        # Cloud Run logs (why the latlng bug was opaque), without touching
+        # every handler or changing the returned shape.
+        if error_type in ("internal_error", "unexpected_error") and sys.exc_info()[0] is not None:
+            logger.exception("Tool handler failed unexpectedly: %s", error_message)
+
         response: dict[str, dict[str, str | list[str]]] = {
             "error": {
                 "message": error_message,
