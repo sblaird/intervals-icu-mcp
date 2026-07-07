@@ -1,8 +1,93 @@
 # Session Resume — intervals.icu MCP connector
 
-**Last updated:** 2026-07-06 · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
+**Last updated:** 2026-07-07 · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
 
 Read this first to resume.
+
+## 🔀 2026-07-07: PLATFORM PIVOT — moving the chat surface off claude.ai onto GravelFit
+
+Decision: stop fighting the claude.ai tool-surfacing bug (below). The conversational surface
+moves to **GravelFit** (`C:\Users\steph\gravelfit` — Vercel React SPA + Fly.io FastAPI backend),
+which will call the **Anthropic Messages API MCP connector** pointed at this Cloud Run server.
+intervals.icu stays the canonical calendar/workout display via deep links. The claude.ai
+connector's Google OAuth flow is KEPT as a fallback surface.
+
+Full design: `docs/specs/2026-07-07-unified-coach-platform-design.md` (approved). Roadmap:
+- **Phase 0 (this repo):** commit LEAN_TOOLS work; add static `MCP_SERVICE_TOKEN` bearer auth
+  (`load_access_token` override on `GoogleGateProvider`, google_oauth.py:222) for
+  server-to-server calls from Anthropic; deploy with `LEAN_TOOLS=1`.
+- **Phase 1–3 (gravelfit repo):** unified coach chat endpoint (MCP connector, streaming),
+  chat-first frontend + Today panel, cleanup. Note: gravelfit prod model
+  `claude-sonnet-4-20250514` is retired — migration mandatory.
+
+The LEAN_TOOLS flag now serves a second purpose either way: 16 tool schemas ≈ 3–6K tokens per
+Messages API request vs ~15–25K for 55, and a byte-stable tool list keeps prompt caching warm.
+
+## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
+
+**What's proven healthy (do NOT touch the server/deploy):**
+- Direct calls from Claude Code via the `claude_ai / Intervals_icu` connector return real 2026-07-07 data:
+  `get_athlete_profile`, `get_recent_activities`, `get_wellness_data` (athlete `i29347`). Server + upstream
+  auth + Firestore token store all fine.
+- claude.ai **Settings → Connectors → Intervals.icu**: **Connected** (green ✓), type Web/**Custom**, URL
+  `https://intervals-mcp-840283109221.us-central1.run.app/mcp`, **55 tools listed, all "Always allow."**
+
+**The actual symptom (claude.ai web side, NOT the server):** claude.ai chats — both inside the Fitness
+Assistant Project AND a plain non-project chat — cannot *invoke* the Intervals.icu tools even though the
+connector is toggled ON. Ruled out by direct experiment on 2026-07-07:
+- NOT a project-scope issue (fails in a clean regular chat too).
+- NOT a per-conversation tool-count cap (fails even with **only** Intervals.icu enabled, all other
+  connectors off).
+- NOT the "Load tools when needed" vs "Tools already loaded" setting (fails in both).
+- The chat model's own report is unreliable (it claimed Drive was available while Drive was toggled off),
+  but the *consistent* cross-chat inability to call Intervals.icu is real. One chat described it as: the
+  connector "is exposed only as something I can wire into an artifact via the Anthropic API — not a tool
+  I can invoke directly in chat."
+
+**Conclusion:** the connector's tool manifest isn't being wired into the claude.ai chat tool list — a
+platform-side surfacing failure, not a config error. Standard remedy = **disconnect + reconnect** the
+Intervals.icu connector at Settings → Connectors so claude.ai re-fetches the manifest.
+
+**TRAP on reconnect (must be the user — OAuth):** the Google-OAuth gate accepts **only
+`stephen@bramblepathdigital.com`** (`MCP_ALLOWED_EMAILS`). Reconnecting and signing in as
+`stephen.b.laird@gmail.com` is rejected/fail-closed and reproduces "connector exposes nothing." If
+reconnect (as the right Google account) still doesn't surface the tools in chat, it's an Anthropic
+platform issue for support — the server side is provably correct.
+
+## 🧪 2026-07-07: LEAN_TOOLS flag added to test the claude.ai tool-surfacing failure
+
+Hypothesis: claude.ai's chat surface drops this Custom connector because its **55-tool** manifest
+exceeds some chat-side budget (Claude Code loads tools on demand, so it keeps them either way).
+`LEAN_TOOLS` (in `server.py`, mirrors the `ENABLE_WRITE_TOOLS` pattern) registers only a **16-tool
+coaching core** (`LEAN_CORE_TOOLS`): profile, fitness summary, wellness (+by-date), recent activities,
+activity details, intervals, best efforts, power curves, sport settings, calendar read + upcoming, and
+the calendar writes (create/update/bulk/mark-done). Strict subset — destructive tools stay out even if
+`ENABLE_WRITE_TOOLS` is on. Off by default (identical to before). Gate green: **281 tests, ruff clean,
+pyright 0 errors** (`tests/test_lean_tool_set.py`). Verified at runtime: default=55 tools, LEAN=16.
+
+**Deploy to test (SAFE — preserves the R1 Google-OAuth secrets; do NOT use the stale full deploy
+command in `project_intervals_mcp.md`, it omits `GOOGLE_OAUTH_*`/`MCP_ALLOWED_EMAILS` and would
+crash-loop the fail-closed boot):**
+```
+gcloud run deploy intervals-mcp --source . \
+  --region=us-central1 --project=intervals-mcp-2026 \
+  --update-env-vars=LEAN_TOOLS=true
+```
+`--source .` rebuilds with the new code; `--update-env-vars` MERGES the flag, leaving all existing
+env/secrets intact. Needs `gcloud auth login` as `stephen@bramblepathdigital.com` (creds expire).
+
+**After deploy:** claude.ai has the 55-tool manifest cached — force a re-fetch (fresh chat first; if the
+tool list doesn't shrink, toggle the connector off/on in the project, or disconnect/reconnect) then ask
+the chat to call `get_athlete_profile`.
+
+**Revert to full 55 (once lean code is live, no rebuild needed):**
+```
+gcloud run services update intervals-mcp --region=us-central1 \
+  --project=intervals-mcp-2026 --remove-env-vars=LEAN_TOOLS
+```
+If lean fixes it → it's a claude.ai per-connector tool-count limit; decide a permanent lean roster or
+split into two connectors. If it does NOT fix it → claude.ai platform bug (issue #1675 class); the
+server is provably fine and it's an Anthropic support item.
 
 ## ⚡ 2026-07-06 session: ALL PHASES (0–4) CODE COMPLETE (not yet deployed)
 
