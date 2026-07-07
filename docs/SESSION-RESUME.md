@@ -177,9 +177,21 @@ the chat render called `.map()` on it → crashed the chat whenever a past turn 
 slide-over opens cleanly (shared CoachChat, Close button); Today panel real data; Dashboard + legacy
 pages intact (kept deliberately — they have unique check-in/weight/nutrition/journal features).
 
-**MIGRATION COMPLETE.** Only optional future work: consolidate nutrition/planning routers onto the
-unified coach, and fix the MCP server's `get_fitness_summary` to read from wellness (so the coach's
-own tool returns CTL/ATL/TSB directly instead of relying on the wellness fallback).
+**MIGRATION COMPLETE.** Optional future work: consolidate nutrition/planning routers onto the
+unified coach.
+
+### ✅ 2026-07-07: `get_fitness_summary` wellness fallback SHIPPED (rev 00024)
+
+Fixed the long-standing empty CTL/ATL/TSB: `tools/athlete.py::get_fitness_summary` read only the
+athlete-profile fitness object (empty for this account). Now when profile CTL/ATL are None it falls
+back to `_latest_fitness_from_wellness()` — most recent wellness row (30-day window, sorted by date),
+reads `ctl`/`atl`/`rampRate`, derives TSB as ctl−atl. Adds `metadata.source` (athlete_profile|wellness).
+Commit `84e5d16`; 290 tests pass (2 new: fallback + genuinely-empty→no_data); ruff/pyright clean.
+Deployed `intervals-mcp-00024-6p2` (code-only, secrets preserved). **Verified via MCP connector:**
+`get_fitness_summary` → CTL 49.5 / ATL 53.6 / TSB −4.1, `source: wellness` (was `no_data`). The
+coach's primary fitness tool now returns real load directly; the prompt's wellness-fallback line is
+now harmless belt-and-suspenders. (Note: `get_athlete_profile.fitness` still shows `{}` — same
+fallback could be applied there, but the coach uses get_fitness_summary.)
 
 ### ✅ 2026-07-07: SHIPPED — full stack live & E2E-verified in browser
 
