@@ -180,6 +180,23 @@ pages intact (kept deliberately — they have unique check-in/weight/nutrition/j
 **MIGRATION COMPLETE.** Optional future work: consolidate nutrition/planning routers onto the
 unified coach.
 
+### ✅ 2026-07-07: Date-grounding fix (stale race countdowns)
+
+Bug: coach called the already-completed Muddy Onion race an "A race 27 days out" (27 days maps to a
+frozen ~2026-03-30 context). Root cause: the unified coach had NO current-date grounding — the planned
+"today is X" injection was never implemented — so it carried stale relative countdowns forward from
+the rolling 20-msg chat window. (The "context block" it cited is NOT injected by the coach path; the
+stale 27/139-days figures trace to the legacy planning router's DB context / seed. Coach was
+confabulating timing without a date anchor.) Fix (gravelfit `20cbb02`, deployed): every user turn is
+prefixed server-side with the athlete's local date (`_ground_in_today`, America/New_York), marked
+authoritative; prompt §0 now requires computing all timing from that date + a live `get_calendar_events`
+read and treating past-dated events as completed. **Verified live:** "Is Muddy Onion coming up?" →
+reads calendar → "already behind you, ~10+ weeks ago; next race Vermont Overland Aug 15, 39 days out."
+
+Open (user's 2nd ask, being scoped): persistent "athlete context" — inject a durable, absolute-dated
+training-context block each turn so the coach is grounded across sessions (recommend hybrid:
+auto-rendered DB/intervals.icu facts + coach-maintained notes).
+
 ### ✅ 2026-07-07: Workout-review skill folded into the coach
 
 Adapted the `workout-review` skill (user-supplied `.skill` bundle) into `coach_system_prompt.md`
