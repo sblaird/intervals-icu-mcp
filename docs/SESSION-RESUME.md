@@ -72,9 +72,37 @@ returned live data (athlete FergusYL / `i29347`). Confirmed request shape for th
 profile, activities all return live data). Investigate before wiring the Today panel's load numbers
 (FR2): confirm whether fitness needs a date param / recalc on intervals.icu, or use a different field.
 
-Next: build the GravelFit backend unified chat endpoint (`services/unified_coach_ai.py`, rewire
-`routers/coach.py`, merged system prompt, SDK bump) in `C:\Users\steph\gravelfit`. Model
-`claude-opus-4-8`. See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
+### ✅ 2026-07-07: Coach system prompt written + tool-surface decided
+
+**System prompt:** `C:\Users\steph\gravelfit\coach_system_prompt.md` (adapted from the claude.ai
+project instructions the user provided). Improvements: corrected the intervals.icu **subjective
+scales** (they're mostly inverted 1–4 where 1=best — the old /10 & /5 assumptions were wrong;
+fixed every running/fatigue/planning rule that used them), corrected calendar categories
+(WORKOUT/NOTE/RACE/GOAL; strength→WORKOUT+WeightTraining), added a "no delete tool" rule, and wove
+in the expanded data: `get_power_model` (eFTP/CP/W′), `get_power_vs_hr_trend`,
+`get_activity_curves(fatigue=true)` durability, rich fields (`decoupling_percent`,
+`variability_index`, `efficiency_factor`, `polarization_index`, `zone_times`), the **fueling audit**
+(`carbs_ingested_grams` vs `carbs_used_grams`), and wellness `vo2max`. Deep-link + confirm-before-write
++ real-data-first-with-estimation-fallback baked in. Left the old `fitness_coach_system_prompt.md` for reference.
+
+**Tool-surface decision (user chose "curated coaching set"):** REMOVE `LEAN_TOOLS` from Cloud Run
+so the server exposes all 55 (destructive tools stay gated via `ENABLE_WRITE_TOOLS`, still off), and
+have the GravelFit backend **allowlist** a coaching subset per-request via the connector's
+`tools:[{type:"mcp_toolset", ..., default_config:{enabled:false}, configs:[{name,enabled:true},…]}]`.
+Redeploy: `gcloud run deploy intervals-mcp --source . --region=us-central1 --project=intervals-mcp-2026
+--remove-env-vars=LEAN_TOOLS` (merge form preserves OAuth secrets + MCP_SERVICE_TOKEN).
+
+Intended allowlist (~35, drop gear/downloads/sport-writes/deletes): all READ (profile, fitness,
+sport_settings, recent/details/around/search activities, wellness ×2, calendar ×2, event), all
+ANALYZE (intervals, best_efforts, power/hr/pace curves, power_model, power_vs_hr_trend,
+activity_curves, streams, 4 histograms, power_vs_hr, time_at_hr, interval_stats, segments), weather ×2,
+routes ×3, workout library ×2, `update_wellness`, and calendar writes (create/bulk_create/update/
+duplicate/mark_done). Finalize exact names when wiring `unified_coach_ai.py`.
+
+Next: (1) redeploy Cloud Run without LEAN_TOOLS; (2) build the GravelFit backend unified chat
+endpoint (`services/unified_coach_ai.py` with the allowlist + SSE mapper, rewire `routers/coach.py`,
+SDK bump, load `coach_system_prompt.md` with `cache_control`). Model `claude-opus-4-8`.
+See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
 
 ## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
 
