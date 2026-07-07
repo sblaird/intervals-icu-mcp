@@ -99,10 +99,28 @@ activity_curves, streams, 4 histograms, power_vs_hr, time_at_hr, interval_stats,
 routes ×3, workout library ×2, `update_wellness`, and calendar writes (create/bulk_create/update/
 duplicate/mark_done). Finalize exact names when wiring `unified_coach_ai.py`.
 
-Next: (1) redeploy Cloud Run without LEAN_TOOLS; (2) build the GravelFit backend unified chat
-endpoint (`services/unified_coach_ai.py` with the allowlist + SSE mapper, rewire `routers/coach.py`,
-SDK bump, load `coach_system_prompt.md` with `cache_control`). Model `claude-opus-4-8`.
-See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
+### ✅ 2026-07-07: Cloud Run full surface + GravelFit backend built & verified
+
+- **Cloud Run:** LEAN_TOOLS removed, revision **`intervals-mcp-00023-bvn`** exposes all **55**
+  tools (destructive still gated). Verified via authenticated tools/list.
+- **GravelFit backend** (`C:\Users\steph\gravelfit`, committed locally `c4fae09`, NOT pushed):
+  new `backend/services/unified_coach_ai.py` (`UnifiedCoachAI`) streams via
+  `client.beta.messages.stream(betas=["mcp-client-2025-11-20"], mcp_servers=[...], tools=[mcp_toolset])`,
+  curated ~42-tool allowlist, maps `mcp_tool_use`/`mcp_tool_result` → existing SSE frames
+  (text/tool_call/tool_result/done), handles `pause_turn`, loads `coach_system_prompt.md` with
+  `cache_control`, model `claude-opus-4-8`. Rewired `routers/coach.py` (`/chat`, `/chat/stream`)
+  to the new service; added `mcp_server_url`/`mcp_service_token` to `config.py`; bumped anthropic
+  pin `>=0.77.0` (installed 0.77.0 supports the connector). Frontend unchanged.
+- **Smoke test (live, local venv):** streamed text + `get_athlete_profile` server-side →
+  FergusYL/i29347; frame counts text×4/tool_call×1/tool_result×1/done×1. py_compile clean.
+
+**⚠️ GOTCHA — `mcp_toolset.configs` is an OBJECT, not a list.** The claude-api skill showed
+`configs: [{name, enabled}]`; the API rejects that (400 "Input should be an object"). Correct
+shape: `configs: {"<tool_name>": {"enabled": true}, …}` with `default_config: {"enabled": false}`.
+
+Next: **Fly.io deploy** (needs `fly secrets set MCP_SERVICE_TOKEN=<clean 64-char>`; ANTHROPIC_API_KEY
+already set; MCP_SERVER_URL has a default in config) — confirm with user. Then Phase 2 (frontend
+Coach page + Today panel). See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
 
 ## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
 
