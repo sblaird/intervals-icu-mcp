@@ -193,9 +193,27 @@ authoritative; prompt §0 now requires computing all timing from that date + a l
 read and treating past-dated events as completed. **Verified live:** "Is Muddy Onion coming up?" →
 reads calendar → "already behind you, ~10+ weeks ago; next race Vermont Overland Aug 15, 39 days out."
 
-Open (user's 2nd ask, being scoped): persistent "athlete context" — inject a durable, absolute-dated
-training-context block each turn so the coach is grounded across sessions (recommend hybrid:
-auto-rendered DB/intervals.icu facts + coach-maintained notes).
+### ✅ 2026-07-07: Persistent athlete context SHIPPED (hybrid: auto facts + coach notes)
+
+Every coach turn now injects an `## ATHLETE CONTEXT` block (via `_ground_in_today`, after the date):
+- **Auto facts** (`services/athlete_context.py::build_athlete_context`) rendered live each turn from
+  the DB + cached intervals.icu, with ABSOLUTE dates + days-to-today so nothing goes stale: races
+  (events table — Muddy Onion shown "2026-04-25, 73 days ago, COMPLETED"; Vermont Overland "in 39
+  days"), active training block, current CTL/ATL/TSB, weight goal. All guarded.
+- **Coach notes** — new `coach_context` table (migration `008`), single row. Coach updates via a new
+  client-side `update_coach_notes` tool (mixed with the MCP toolset; handled in a `stop_reason ==
+  "tool_use"` continuation loop in `unified_coach_ai`). Router builds context + a note_writer bound to
+  the db client each turn.
+**Verified live:** "remember my Achilles issue" → coach called `update_coach_notes` (saved); next turn
+recalled it from the injected context (persists across sessions, not just chat history).
+
+**🚨 INCIDENT (self-inflicted, fixed):** migration `008` had a **semicolon inside a SQL comment**; the
+naive `run_migrations` splits on `;`, so it split the comment into invalid SQL (`near "this": syntax
+error`), `init_db()` threw, and **app startup crashed (Fly machine exited)** — brief outage. Fix
+(`2ff581d`): no semicolons in migration comments. Redeployed; `/api/today` healthy, migration applied.
+Lesson for future migrations: this repo's runner is a dumb `split(';')` — keep `;` out of comments.
+
+Commits: gravelfit `27a1da9` (feature), `2ff581d` (migration fix). Both pushed + deployed.
 
 ### ✅ 2026-07-07: Workout-review skill folded into the coach
 
