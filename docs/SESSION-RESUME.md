@@ -23,6 +23,37 @@ Full design: `docs/specs/2026-07-07-unified-coach-platform-design.md` (approved)
 The LEAN_TOOLS flag now serves a second purpose either way: 16 tool schemas ≈ 3–6K tokens per
 Messages API request vs ~15–25K for 55, and a byte-stable tool list keeps prompt caching warm.
 
+### ✅ 2026-07-07: Phase 0 SHIPPED — LEAN + service token live on Cloud Run
+
+Committed: `49b76fc` (LEAN_TOOLS), `567dde1` (MCP_SERVICE_TOKEN bearer auth + 7 tests).
+Quality gate green: **288 tests, ruff + pyright clean.** Deployed revision
+**`intervals-mcp-00022-lvm`** (100% traffic) with `LEAN_TOOLS=true` +
+`--update-secrets=MCP_SERVICE_TOKEN=mcp-service-token:latest`.
+
+Verification passed:
+- Unauthenticated `POST /mcp` → **401**.
+- Boot log: `Static service-token auth enabled: True` (+ Firestore store, Google gate, 1 email).
+- `tools/list` with the bearer token → **exactly the 16 LEAN_CORE_TOOLS**.
+
+**Auth model now:** `GoogleGateProvider.load_access_token` (google_oauth.py) accepts a static
+`MCP_SERVICE_TOKEN` (≥32 chars, constant-time compare) for server-to-server calls (Anthropic MCP
+connector / GravelFit backend), else falls through to the Google-OAuth store. Fail-closed when unset.
+
+**⚠️ GOTCHA — secret must have NO trailing newline/CR.** The first `gcloud secrets create` used
+`python -c print(...) | tr -d '\n'`, but Windows Python prints `\r\n`, so version 1 kept a stray
+`\r` (65 bytes). The *server* survives via `.strip()`, but a client sending the raw value emits an
+illegal HTTP header `Bearer ...\r` and fails. **Fixed:** secret **version 2 is clean (64 bytes)**.
+When wiring Fly.io in Phase 1, read the token defensively: `gcloud secrets versions access latest
+--secret=mcp-service-token --project=intervals-mcp-2026 | tr -d '\r\n'`. Effective token value is
+the 64-char urlsafe string (server strips, so v1 and v2 authenticate the same client token).
+
+**Still manual (owner):** confirm the claude.ai OAuth connector still authenticates (open a chat,
+sign in as stephen@bramblepathdigital.com) — server side is proven, this is the platform regression.
+
+Next: **Phase 1** — curl-gate the Anthropic Messages API MCP connector against this live server
+(`https://intervals-mcp-840283109221.us-central1.run.app/mcp`), then build the GravelFit unified
+chat endpoint. See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
+
 ## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
 
 **What's proven healthy (do NOT touch the server/deploy):**
