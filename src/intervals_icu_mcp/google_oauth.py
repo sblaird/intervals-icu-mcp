@@ -45,7 +45,7 @@ import httpx
 from authlib.jose import JsonWebKey, JsonWebToken
 from authlib.jose.errors import JoseError
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
-from mcp.server.auth.provider import AuthorizationParams
+from mcp.server.auth.provider import AccessToken, AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
@@ -288,6 +288,29 @@ class GoogleGateProvider(InMemoryOAuthProvider):
         email = await verify_google_identity(self._google_config, google_code, nonce)
         logger.info("Google sign-in verified for %s; issuing MCP authorization code", email)
         return await super().authorize(pending.client, pending.params)
+
+    async def load_access_token(self, token: str) -> AccessToken | None:
+        """Accept a static service token for non-interactive server-to-server auth.
+
+        The Anthropic MCP connector (and the GravelFit backend that drives it)
+        cannot complete the browser-based Google gate, so they present
+        ``MCP_SERVICE_TOKEN`` as a bearer token — which Anthropic forwards as
+        ``Authorization: Bearer <token>``. Any other value falls through to the
+        real OAuth store via ``super()`` (which for the Firestore variant is
+        ``FirestoreOAuthProvider.load_access_token``). This only *adds* an auth
+        path: when the env var is unset, empty, or a weak (<32 char) secret is
+        misconfigured, no token is ever accepted here and the fail-closed OAuth
+        behavior is unchanged.
+        """
+        service_token = os.getenv("MCP_SERVICE_TOKEN", "").strip()
+        if len(service_token) >= 32 and secrets.compare_digest(token, service_token):
+            return AccessToken(
+                token=token,
+                client_id="anthropic-mcp-connector",
+                scopes=["mcp"],
+                expires_at=None,
+            )
+        return await super().load_access_token(token)
 
 
 class GoogleGatedInMemoryOAuthProvider(GoogleGateProvider):

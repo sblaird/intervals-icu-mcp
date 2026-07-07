@@ -28,6 +28,11 @@ Optional:
                              transport, so cold-start session loss can't strand
                              claude.ai. Set to "0" to use stateful sessions
                              (in-memory; will 400 after a cold start).
+    MCP_SERVICE_TOKEN        static bearer token (>=32 chars) accepted for
+                             non-interactive server-to-server auth (e.g. the
+                             Anthropic MCP connector driven by the GravelFit
+                             backend), alongside the Google OAuth flow. Unset
+                             or weak values disable the bypass (fail-closed).
 """
 
 from __future__ import annotations
@@ -107,6 +112,8 @@ def main() -> None:
         "OAuth authorize is gated by Google Sign-In (%d allowlisted email(s))",
         len(google_config.allowed_emails),
     )
+    service_token_enabled = len(os.getenv("MCP_SERVICE_TOKEN", "").strip()) >= 32
+    logger.info("Static service-token auth enabled: %s", service_token_enabled)
 
     # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
     # to /.well-known/oauth-protected-resource (no suffix), but only the
