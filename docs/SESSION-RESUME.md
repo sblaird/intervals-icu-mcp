@@ -50,9 +50,31 @@ the 64-char urlsafe string (server strips, so v1 and v2 authenticate the same cl
 **Still manual (owner):** confirm the claude.ai OAuth connector still authenticates (open a chat,
 sign in as stephen@bramblepathdigital.com) — server side is proven, this is the platform regression.
 
-Next: **Phase 1** — curl-gate the Anthropic Messages API MCP connector against this live server
-(`https://intervals-mcp-840283109221.us-central1.run.app/mcp`), then build the GravelFit unified
-chat endpoint. See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
+### ✅ 2026-07-07: Phase 1 curl gate PASSED — connector shape pinned
+
+Live end-to-end call: Anthropic Messages API → MCP connector → Cloud Run server → intervals.icu.
+Claude (`claude-opus-4-8`) invoked `get_fitness_summary` and `get_athlete_profile` server-side and
+returned live data (athlete FergusYL / `i29347`). Confirmed request shape for the GravelFit backend:
+
+- **Beta header:** `anthropic-beta: mcp-client-2025-11-20` (NOT the legacy `2025-04-04`).
+- **Two required halves:** `mcp_servers: [{type:"url", url, name:"intervals-icu", authorization_token:<MCP_SERVICE_TOKEN>}]`
+  **plus** `tools: [{type:"mcp_toolset", mcp_server_name:"intervals-icu"}]`. Omitting the toolset = 400.
+- **Auth:** `authorization_token` is forwarded as `Authorization: Bearer` — our static service token works.
+- **Stream/response block types** (for the SSE mapper in `services/unified_coach_ai.py`):
+  `mcp_tool_use` (fields `name`, `server_name`) and `mcp_tool_result` (fields `is_error`, `content` =
+  list of `{type:"text", text:<json string>}`). `stop_reason: end_turn` on completion; handle `pause_turn`.
+- **Token cost:** 16 lean tool schemas ≈ **12.3K input tokens** per call (richer schemas than the 3–6K
+  estimate, but still far below the 55-tool manifest). Add `cache_control` on the system prompt so
+  repeat turns are cache reads.
+
+**⚠️ Data finding:** `get_fitness_summary` returned `no_data` and `get_athlete_profile` shows
+`"fitness":{}` — CTL/ATL/TSB are empty via these paths for athlete i29347 right now (wellness,
+profile, activities all return live data). Investigate before wiring the Today panel's load numbers
+(FR2): confirm whether fitness needs a date param / recalc on intervals.icu, or use a different field.
+
+Next: build the GravelFit backend unified chat endpoint (`services/unified_coach_ai.py`, rewire
+`routers/coach.py`, merged system prompt, SDK bump) in `C:\Users\steph\gravelfit`. Model
+`claude-opus-4-8`. See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
 
 ## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
 
