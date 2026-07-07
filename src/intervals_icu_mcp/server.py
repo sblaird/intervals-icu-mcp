@@ -34,8 +34,49 @@ GATED_DESTRUCTIVE_TOOLS = (
     "apply_sport_settings",
 )
 
+# LEAN_TOOLS: register only the coaching core below instead of the full ~55-tool
+# surface. claude.ai's chat surface appears to drop a custom connector whose tool
+# count is large (Claude Code, which loads tools on demand, keeps them either
+# way). This flag lets the hosted deploy expose a small, high-value read/plan set
+# so the connector fits under that budget. It is a *strict subset*: destructive
+# tools stay out even if ENABLE_WRITE_TOOLS is also set.
+LEAN_TOOLS_ENABLED = _env_flag("LEAN_TOOLS")
+
+LEAN_CORE_TOOLS = (
+    # Fitness / wellness / activity reads — the numbers a coach needs.
+    "get_athlete_profile",
+    "get_fitness_summary",
+    "get_wellness_data",
+    "get_wellness_for_date",
+    "get_recent_activities",
+    "get_activity_details",
+    "get_activity_intervals",
+    "get_best_efforts",
+    "get_power_curves",
+    "get_sport_settings",
+    # Calendar read + the writes needed to plan a training week.
+    "get_calendar_events",
+    "get_upcoming_workouts",
+    "create_event",
+    "update_event",
+    "bulk_create_events",
+    "mark_event_done",
+)
+
 # Initialize FastMCP server
 mcp = FastMCP("Intervals.icu")
+
+
+def _register(func: Any) -> None:
+    """Register a tool, honoring the lean-mode allowlist.
+
+    With LEAN_TOOLS off this is exactly ``mcp.tool()(func)``. With it on, only
+    the names in ``LEAN_CORE_TOOLS`` are registered; everything else is skipped.
+    """
+    if LEAN_TOOLS_ENABLED and func.__name__ not in LEAN_CORE_TOOLS:
+        return
+    mcp.tool()(func)
+
 
 # Register middleware
 from .middleware import ConfigMiddleware
@@ -104,92 +145,92 @@ from .tools.wellness import get_wellness_data, get_wellness_for_date, update_wel
 from .tools.workout_library import get_workout_library, get_workouts_in_folder
 
 # Register activity tools
-mcp.tool()(get_recent_activities)
-mcp.tool()(get_activity_details)
-mcp.tool()(search_activities)
-mcp.tool()(search_activities_full)
-mcp.tool()(get_activities_around)
-mcp.tool()(update_activity)
+_register(get_recent_activities)
+_register(get_activity_details)
+_register(search_activities)
+_register(search_activities_full)
+_register(get_activities_around)
+_register(update_activity)
 if WRITE_TOOLS_ENABLED:
-    mcp.tool()(delete_activity)
-mcp.tool()(download_activity_file)
-mcp.tool()(download_fit_file)
-mcp.tool()(download_gpx_file)
+    _register(delete_activity)
+_register(download_activity_file)
+_register(download_fit_file)
+_register(download_gpx_file)
 
 # Register activity analysis tools
-mcp.tool()(get_activity_streams)
-mcp.tool()(get_activity_intervals)
-mcp.tool()(get_best_efforts)
-mcp.tool()(search_intervals)
-mcp.tool()(get_power_histogram)
-mcp.tool()(get_hr_histogram)
-mcp.tool()(get_pace_histogram)
-mcp.tool()(get_gap_histogram)
-mcp.tool()(get_power_vs_hr)
-mcp.tool()(get_time_at_hr)
-mcp.tool()(get_activity_curves)
-mcp.tool()(get_interval_stats)
-mcp.tool()(get_activity_segments)
+_register(get_activity_streams)
+_register(get_activity_intervals)
+_register(get_best_efforts)
+_register(search_intervals)
+_register(get_power_histogram)
+_register(get_hr_histogram)
+_register(get_pace_histogram)
+_register(get_gap_histogram)
+_register(get_power_vs_hr)
+_register(get_time_at_hr)
+_register(get_activity_curves)
+_register(get_interval_stats)
+_register(get_activity_segments)
 
 # Register athlete tools
-mcp.tool()(get_athlete_profile)
-mcp.tool()(get_fitness_summary)
+_register(get_athlete_profile)
+_register(get_fitness_summary)
 
 # Register wellness tools
-mcp.tool()(get_wellness_data)
-mcp.tool()(get_wellness_for_date)
-mcp.tool()(update_wellness)
+_register(get_wellness_data)
+_register(get_wellness_for_date)
+_register(update_wellness)
 
 # Register event/calendar tools
-mcp.tool()(get_calendar_events)
-mcp.tool()(get_upcoming_workouts)
-mcp.tool()(get_event)
-mcp.tool()(create_event)
-mcp.tool()(update_event)
+_register(get_calendar_events)
+_register(get_upcoming_workouts)
+_register(get_event)
+_register(create_event)
+_register(update_event)
 if WRITE_TOOLS_ENABLED:
-    mcp.tool()(delete_event)
-mcp.tool()(bulk_create_events)
+    _register(delete_event)
+_register(bulk_create_events)
 if WRITE_TOOLS_ENABLED:
-    mcp.tool()(bulk_delete_events)
-mcp.tool()(duplicate_event)
-mcp.tool()(mark_event_done)
+    _register(bulk_delete_events)
+_register(duplicate_event)
+_register(mark_event_done)
 
 # Register performance/curve tools
-mcp.tool()(get_power_curves)
-mcp.tool()(get_hr_curves)
-mcp.tool()(get_pace_curves)
-mcp.tool()(get_power_model)
-mcp.tool()(get_power_vs_hr_trend)
+_register(get_power_curves)
+_register(get_hr_curves)
+_register(get_pace_curves)
+_register(get_power_model)
+_register(get_power_vs_hr_trend)
 
 # Register workout library tools
-mcp.tool()(get_workout_library)
-mcp.tool()(get_workouts_in_folder)
+_register(get_workout_library)
+_register(get_workouts_in_folder)
 
 # Register gear management tools
-mcp.tool()(get_gear_list)
-mcp.tool()(create_gear)
-mcp.tool()(update_gear)
+_register(get_gear_list)
+_register(create_gear)
+_register(update_gear)
 if WRITE_TOOLS_ENABLED:
-    mcp.tool()(delete_gear)
-mcp.tool()(create_gear_reminder)
-mcp.tool()(update_gear_reminder)
+    _register(delete_gear)
+_register(create_gear_reminder)
+_register(update_gear_reminder)
 
 # Register sport settings tools
-mcp.tool()(get_sport_settings)
-mcp.tool()(update_sport_settings)
-mcp.tool()(create_sport_settings)
+_register(get_sport_settings)
+_register(update_sport_settings)
+_register(create_sport_settings)
 if WRITE_TOOLS_ENABLED:
-    mcp.tool()(apply_sport_settings)
-    mcp.tool()(delete_sport_settings)
+    _register(apply_sport_settings)
+    _register(delete_sport_settings)
 
 # Register weather tools
-mcp.tool()(get_weather_forecast)
-mcp.tool()(get_activity_weather)
+_register(get_weather_forecast)
+_register(get_activity_weather)
 
 # Register route tools
-mcp.tool()(list_routes)
-mcp.tool()(get_route)
-mcp.tool()(compare_route_similarity)
+_register(list_routes)
+_register(get_route)
+_register(compare_route_similarity)
 
 
 # Widen every tool's int/float/array params to also accept the JSON-string form
@@ -207,6 +248,13 @@ else:
     logger.info(
         "Destructive tools disabled (set ENABLE_WRITE_TOOLS=true to register): %s",
         ", ".join(GATED_DESTRUCTIVE_TOOLS),
+    )
+
+if LEAN_TOOLS_ENABLED:
+    logger.info(
+        "LEAN_TOOLS enabled: exposing only the %d-tool coaching core: %s",
+        len(LEAN_CORE_TOOLS),
+        ", ".join(LEAN_CORE_TOOLS),
     )
 
 
