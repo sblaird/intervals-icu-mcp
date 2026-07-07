@@ -154,8 +154,29 @@ Verified live:
 `propose_week_plan`), which mildly confuses the new coach on replay. A one-time
 `DELETE /api/coach/history` gives a clean slate; otherwise self-resolves as new turns accumulate.
 
-Remaining: push both repos (Vercel auto-deploys the frontend from gravelfit main — **outward-facing,
-confirm first**) → browser E2E on the Vercel preview → Phase 3 cleanup.
+### ✅ 2026-07-07: SHIPPED — full stack live & E2E-verified in browser
+
+Both repos pushed to GitHub (`sblaird/gravelfit`, `sblaird/intervals-icu-mcp`); legacy `coach_chats`
+history cleared (4 rows). Vercel auto-deployed the frontend. **Live URL:
+`https://frontend-two-alpha-22.vercel.app`** (root redirects to `/coach`; the two `gravelfit.vercel.app`
+domain guesses 404 — this alpha-22 domain is the real one). Browser E2E (Playwright) passed:
+- `/` → `/coach`; sidebar Coach/Dashboard/Nutrition/Journal + intervals.icu Calendar↗/Fitness↗ links.
+- Today panel real data: HRV 24 / RHR 53 / sleep 7.4h; CTL 49.5 / ATL 53.6 / TSB −4.1 "Neutral";
+  next "Z2 Easy · 45 TSS" → intervals.icu/calendar.
+- Sent a chat message → streamed a full coaching reply with "Read fitness" + "Read activities" tool
+  chips. Full stack confirmed: Vercel → Fly → Anthropic MCP connector → Cloud Run → intervals.icu.
+
+**Confirmed the CTL/ATL/TSB gap in the coach's own words:** it said load metrics "aren't currently
+populating" because it used `get_fitness_summary` (empty) — while the Today panel (direct client,
+reads wellness) shows the real 49.5/53.6/−4.1. **Cheapest fix (deferred): one system-prompt line** —
+"if `get_fitness_summary` returns no data, read CTL/ATL/TSB from `get_wellness_data` (wellness rows
+carry ctl/atl/tsb)." A proper fix is to make the MCP server's `get_fitness_summary` read the same
+wellness/PMC source the GravelFit direct client uses.
+
+**Remaining — Phase 3 cleanup only:** retire `services/fitness_coach_ai.py` + `execute_tool` in
+`routers/coach.py`; consolidate the duplicated `CoachChat`/`FitnessCoach` SSE logic; delete unrouted
+legacy pages (Dashboard/Calendar/Nutrition/Journal if truly unused) + prune dead `api/client.js`
+fetchers; slim `intervals_client.py` to Today-panel needs; README architecture + token-rotation runbook.
 
 ### ⏸ (resolved) Fly.io deploy needed `flyctl auth login` — done
 
