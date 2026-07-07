@@ -118,9 +118,40 @@ duplicate/mark_done). Finalize exact names when wiring `unified_coach_ai.py`.
 `configs: [{name, enabled}]`; the API rejects that (400 "Input should be an object"). Correct
 shape: `configs: {"<tool_name>": {"enabled": true}, …}` with `default_config: {"enabled": false}`.
 
-Next: **Fly.io deploy** (needs `fly secrets set MCP_SERVICE_TOKEN=<clean 64-char>`; ANTHROPIC_API_KEY
-already set; MCP_SERVER_URL has a default in config) — confirm with user. Then Phase 2 (frontend
-Coach page + Today panel). See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
+### ✅ 2026-07-07: Phase 2 frontend built (chat-first Coach + Today panel)
+
+GravelFit committed locally `d79ccb5` (NOT pushed). Vite build clean (420 modules).
+- Backend `GET /api/today` (`backend/routers/today.py`, registered): readiness (HRV/RHR/sleep) +
+  CTL/ATL/TSB + next planned workout, sourced from intervals.icu via the caching client, **DB-free**.
+  **Verified with real data:** CTL 49.5 / ATL 53.6 / TSB −4.1, HRV 24, RHR 53, sleep 7.4h, next
+  "Z2 Easy" today.
+- Frontend: `pages/Coach.jsx` (reusable `components/coach/CoachChat.jsx` + `components/today/TodayPanel.jsx`
+  side rail), index route `/` → `/coach`, sidebar gains Coach + external intervals.icu Calendar/Fitness
+  links, floating FitnessCoach slide-over suppressed on `/coach` (no double chat). Legacy pages kept
+  (Phase 3 cleanup). FitnessCoach.jsx left untouched (zero regression); CoachChat duplicates its SSE
+  logic — consolidate in Phase 3.
+
+**🔑 KEY FINDING (CTL/ATL/TSB "empty" resolved):** the numbers DO exist. GravelFit's direct
+`intervals_client.get_fitness()` reads CTL/ATL/TSB from the **wellness rows** and returns real values
+(49.5/53.6/−4.1). Only the MCP server's `get_fitness_summary` + `profile.fitness` paths return empty.
+So the coach can source load from `get_wellness_data`/`get_wellness_for_date` (wellness carries
+ctl/atl/tsb) even while `get_fitness_summary` is broken. Fix path for the MCP server: make
+`get_fitness_summary` read from the wellness/PMC source the direct client uses. (Deferred by user.)
+
+### ⏸ BLOCKED on user: Fly.io deploy needs `flyctl auth login`
+
+flyctl v0.4.27 installed at `~/.fly/bin/flyctl` but NOT authenticated ("no access token"). This is an
+interactive browser flow the agent can't drive. Once the user runs `flyctl auth login`, deploy with:
+```
+FLY=~/.fly/bin/flyctl
+"$FLY" secrets set MCP_SERVICE_TOKEN=$(gcloud secrets versions access latest --secret=mcp-service-token --project=intervals-mcp-2026 | tr -d '\r\n') --app gravelfit-backend
+cd gravelfit/backend && "$FLY" deploy
+```
+(ANTHROPIC_API_KEY already on Fly; MCP_SERVER_URL has a config default.) Model retirement is already
+resolved — chat routes call UnifiedCoachAI (opus-4-8); the retired sonnet-4 model is dead code.
+
+Remaining: Fly deploy (user auth) → push both repos → Vercel preview E2E (browser: chat streams,
+Today panel loads, deep links) → Phase 3 cleanup. See `docs/specs/2026-07-07-unified-coach-platform-design.md`.
 
 ## ⚠️ 2026-07-07: server/connector HEALTHY, but claude.ai chat won't surface the tools (reconnect needed)
 
