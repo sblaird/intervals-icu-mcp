@@ -138,7 +138,26 @@ So the coach can source load from `get_wellness_data`/`get_wellness_for_date` (w
 ctl/atl/tsb) even while `get_fitness_summary` is broken. Fix path for the MCP server: make
 `get_fitness_summary` read from the wellness/PMC source the direct client uses. (Deferred by user.)
 
-### ⏸ BLOCKED on user: Fly.io deploy needs `flyctl auth login`
+### ✅ 2026-07-07: Fly.io backend DEPLOYED & verified live
+
+Deployed to `gravelfit-backend.fly.dev` (staged `MCP_SERVICE_TOKEN` applied; ANTHROPIC/INTERVALS
+keys already present). **Deploy gotcha:** run `flyctl deploy` from the **gravelfit repo ROOT**
+(root `fly.toml` → `[build] dockerfile = "backend/Dockerfile"`, Dockerfile COPYs `backend/…`).
+Running from `backend/` uses the wrong `backend/fly.toml` and fails ("/backend not found").
+
+Verified live:
+- `GET /api/today` → real data (CTL 49.5 / ATL 53.6 / TSB −4.1, HRV 24, RHR 53, sleep 7.4h, next Z2 Easy).
+- `POST /api/coach/chat/stream` → full chain Fly → Anthropic → MCP connector → Cloud Run → intervals.icu:
+  streamed text + `get_athlete_profile` server-side → FergusYL/i29347; frames text/tool_call/tool_result/done.
+
+**Minor follow-up:** legacy `coach_chats` history references the old client-side tools (e.g.
+`propose_week_plan`), which mildly confuses the new coach on replay. A one-time
+`DELETE /api/coach/history` gives a clean slate; otherwise self-resolves as new turns accumulate.
+
+Remaining: push both repos (Vercel auto-deploys the frontend from gravelfit main — **outward-facing,
+confirm first**) → browser E2E on the Vercel preview → Phase 3 cleanup.
+
+### ⏸ (resolved) Fly.io deploy needed `flyctl auth login` — done
 
 flyctl v0.4.27 installed at `~/.fly/bin/flyctl` but NOT authenticated ("no access token"). This is an
 interactive browser flow the agent can't drive. Once the user runs `flyctl auth login`, deploy with:
