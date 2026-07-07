@@ -154,6 +154,33 @@ Verified live:
 `propose_week_plan`), which mildly confuses the new coach on replay. A one-time
 `DELETE /api/coach/history` gives a clean slate; otherwise self-resolves as new turns accumulate.
 
+### ✅ 2026-07-07: Phase 3 cleanup DONE + two production bugs caught & fixed
+
+CTL/ATL/TSB prompt fix, backend dead-code removal (coach.py 611→~140), model retirement
+completed (`fitness_coach_ai.py` sonnet-4→**sonnet-5**; kept because nutrition/planning routers
+use it), frontend chat consolidation (`FitnessCoach` → thin shell over shared `CoachChat`), README
+architecture + token-rotation runbook. gravelfit commits `2a59aa4`, `971b688`, `bcc01c6` (pushed).
+
+**🐛 BUG 1 (critical) — system prompt was NEVER in the container.** `coach_system_prompt.md` sat at
+the gravelfit repo ROOT, but the Dockerfile only `COPY backend/ .`, so it wasn't in the image →
+`UnifiedCoachAI` silently used its 4-line fallback prompt in prod the whole time (local smoke test
+loaded the real file and masked it). Fix: **moved to `backend/coach_system_prompt.md`**, load from
+`Path(__file__).parent.parent`. Verified live: coach now runs the full 44K prompt — on a CTL/ATL/TSB
+question it hit `get_fitness_summary` (empty) → per the fix, said "let me check your wellness rows"
+→ `get_wellness_data` → reported the REAL 49.5/53.6/−4 (was hallucinating 15.5 on the fallback).
+
+**🐛 BUG 2 — `tool_calls.map is not a function`.** History rows store `tool_calls` as a JSON string;
+the chat render called `.map()` on it → crashed the chat whenever a past turn had a tool call
+(pre-existing, exposed by the consolidation). Fix in `CoachChat`: parse on load + `Array.isArray` guard.
+
+**Browser E2E (Playwright) all green:** `/coach` loads history with tool chips (no crash); `/dashboard`
+slide-over opens cleanly (shared CoachChat, Close button); Today panel real data; Dashboard + legacy
+pages intact (kept deliberately — they have unique check-in/weight/nutrition/journal features).
+
+**MIGRATION COMPLETE.** Only optional future work: consolidate nutrition/planning routers onto the
+unified coach, and fix the MCP server's `get_fitness_summary` to read from wellness (so the coach's
+own tool returns CTL/ATL/TSB directly instead of relying on the wellness fallback).
+
 ### ✅ 2026-07-07: SHIPPED — full stack live & E2E-verified in browser
 
 Both repos pushed to GitHub (`sblaird/gravelfit`, `sblaird/intervals-icu-mcp`); legacy `coach_chats`
