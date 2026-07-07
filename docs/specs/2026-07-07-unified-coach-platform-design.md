@@ -81,8 +81,12 @@ Roles:
 - **Cost/tokens:** 16 lean tool schemas (~3–6K tokens) vs 55 (~15–25K) per request; byte-stable
   system prompt + stable tool list keep the prompt cache warm (`cache_read_input_tokens > 0`
   on consecutive turns). "Today is YYYY-MM-DD" injected into the user turn, not the system prompt.
-- **Model:** `claude-opus-4-8` for coaching quality (option: `claude-sonnet-4-6` at ~40% less).
-  The current prod model `claude-sonnet-4-20250514` is **retired** — migration is mandatory.
+- **Model:** `claude-opus-4-8` (confirmed) — chosen for coaching judgment; cost is negligible at
+  single-user volume, so quality drives the pick. `claude-sonnet-5` is the fallback if end-to-end
+  latency (MCP tool loops + Cloud Run cold start + Opus generation) proves annoying; the model is a
+  `config.py` value so it can be A/B'd with one env change. Note: "fast mode" is a Claude Code CLI
+  feature, not a Messages API parameter — it does not apply to the coach runtime. The current prod
+  model `claude-sonnet-4-20250514` is **retired** — migration is mandatory.
 - **Latency:** Cloud Run cold start can delay Claude's first tool call by seconds. Accept
   initially; `min-instances=1` (~$5–10/mo) if it annoys. `MCP_STATELESS_HTTP=1` already
   protects correctness across cold starts.
