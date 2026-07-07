@@ -180,6 +180,21 @@ pages intact (kept deliberately — they have unique check-in/weight/nutrition/j
 **MIGRATION COMPLETE.** Optional future work: consolidate nutrition/planning routers onto the
 unified coach.
 
+### ✅ 2026-07-07: Workout-review skill folded into the coach
+
+Adapted the `workout-review` skill (user-supplied `.skill` bundle) into `coach_system_prompt.md`
+section 8A: 3-dimension compliance scoring (power/duration/pacing), scorecard + block-by-block
+output, longitudinal comparison, race-pace mode, low-score diagnosis. Adaptations for this app:
+**intervals.icu-only** (skill's Strava tools remapped to `search_intervals` / `get_activity_segments` /
+`compare_route_similarity`) and **no code execution** (VI = normalized_power ÷ average_watts from
+`get_activity_intervals`, not numpy). Added `search_intervals` to the coach allowlist (now 43 tools).
+gravelfit `f7e2c51`, pushed + Fly-deployed. **Live-tested:** "Review my most recent ride" →
+called get_recent_activities/get_activity_details/get_activity_intervals, produced a compliance
+scorecard with all three dimensions (done frame received, 2.5K-char review).
+**UX note:** a full review is a slow turn (~3-4 min — several tool calls + detailed analysis on
+opus). Fine in the browser (SSE streams to completion, no hard timeout); just slower than a normal
+reply. Chosen approach was "fold into system prompt" (vs on-demand injection / Anthropic Agent Skills).
+
 ### ✅ 2026-07-07: `get_fitness_summary` wellness fallback SHIPPED (rev 00024)
 
 Fixed the long-standing empty CTL/ATL/TSB: `tools/athlete.py::get_fitness_summary` read only the
