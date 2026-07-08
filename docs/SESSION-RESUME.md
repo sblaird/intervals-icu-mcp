@@ -215,6 +215,23 @@ Lesson for future migrations: this repo's runner is a dumb `split(';')` — keep
 
 Commits: gravelfit `27a1da9` (feature), `2ff581d` (migration fix). Both pushed + deployed.
 
+### ✅ 2026-07-07: calendar deep-link fix + review write-back (gravelfit `2f09b25`)
+
+1. **Calendar links** now use the working week-stamp form `https://intervals.icu/?w=<Monday>` (bare
+   `/calendar` doesn't load a week). Shared `frontend/src/utils/intervals.js::intervalsWeekUrl`; fixed
+   in Today panel, sidebar, `/api/today` (`_week_url`), and the coach prompt. Verified live:
+   `/api/today` → `?w=2026-07-06`.
+2. **Review write-back:** added `update_activity` to the coach allowlist (44 tools); prompt §8A now
+   writes an `ATHLETE FEEDBACK / COACH REVIEW / DECISION` block to the activity's `description` after a
+   review (preserving existing notes), exempt from the calendar-write confirm. Not live-tested (writes
+   to a real activity + slow review turn) — takes effect on next review.
+
+Note: `Updates/Anthropic key.txt` is the API key (gitignored), NOT a spec — do not process/move it.
+
+Possible next features (proposed, awaiting pick): proactive prompt-only nudges (taper from race dates,
+fueling check on long rides, PR surfacing, eFTP-vs-FTP staleness flag); eFTP in the Today panel; gear
+maintenance reminders (MCP gear tools); one-tap daily readiness brief.
+
 ### ✅ 2026-07-07: Workout-review skill folded into the coach
 
 Adapted the `workout-review` skill (user-supplied `.skill` bundle) into `coach_system_prompt.md`
