@@ -228,9 +228,22 @@ Commits: gravelfit `27a1da9` (feature), `2ff581d` (migration fix). Both pushed +
 
 Note: `Updates/Anthropic key.txt` is the API key (gitignored), NOT a spec — do not process/move it.
 
-Possible next features (proposed, awaiting pick): proactive prompt-only nudges (taper from race dates,
-fueling check on long rides, PR surfacing, eFTP-vs-FTP staleness flag); eFTP in the Today panel; gear
-maintenance reminders (MCP gear tools); one-tap daily readiness brief.
+### ✅ 2026-07-07: item-3 features SHIPPED (gravelfit `201b828`) — proactive nudges + eFTP panel
+
+User picked two of four proposed features:
+1. **Proactive nudges** (prompt §0): coach briefly flags taper timing (race dates in context), fueling
+   (carbs_ingested vs carbs_used after long rides), PRs, and eFTP-vs-FTP drift when data warrants.
+2. **eFTP on Today panel**: new `intervals_client.get_ftp()` reads `/mmp-model?type=Ride` (`.ftp` =
+   eFTP) + athlete `sportSettings[Ride].ftp` (configured). `/api/today` returns
+   `ftp:{configured, eftp, stale}` (stale = diverge ≥5%). Panel shows "<eftp> eFTP · set <configured> ·
+   re-test due". **Verified live in browser:** "279 eFTP · set 300 · re-test due" (real 7% gap — set
+   FTP is above modeled, so %-targets run hot). Calendar week-URL fix also confirmed live (next-workout
+   link → `?w=2026-07-06`).
+
+Not built (available later): gear maintenance reminders; one-tap daily readiness brief.
+
+**App is fully live and healthy.** Frontend `https://frontend-two-alpha-22.vercel.app`, backend
+`gravelfit-backend.fly.dev`, MCP `intervals-mcp-840283109221.us-central1.run.app`.
 
 ### ✅ 2026-07-07: Workout-review skill folded into the coach
 
