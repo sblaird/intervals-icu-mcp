@@ -245,6 +245,26 @@ Not built (available later): gear maintenance reminders; one-tap daily readiness
 **App is fully live and healthy.** Frontend `https://frontend-two-alpha-22.vercel.app`, backend
 `gravelfit-backend.fly.dev`, MCP `intervals-mcp-840283109221.us-central1.run.app`.
 
+### ✅ 2026-07-08: coach stall diagnosed = Cloud Run cold starts → min-instances=1
+
+Symptom: coach reported "get_fitness_summary and calendar timed out" then stalled. **Diagnosis:**
+direct MCP tool calls were fast (0.9s / 0.6s); a connector call to a COLD server timed out >90s, but
+to a WARM server completed in 4.3s (tools is_error=False). Root cause = Cloud Run `min-instances=0`
+(scale-to-zero) → first connector tool call after idle hits a cold container and the Anthropic
+connector's MCP-server timeout blows past during boot. **Fix:** `gcloud run services update intervals-mcp
+--min-instances=1` (rev `intervals-mcp-00025-mjm`, minScale=1 confirmed) — keeps one warm instance,
+~$5-10/mo, reversible with `--min-instances=0`. This is the Phase-0 cold-start risk finally biting.
+
+### ✅ 2026-07-08: spinning-cranks "working" indicator (gravelfit `194e69c`)
+
+Replaced the bouncing-dots loader in `CoachChat` with a minimalist spinning bike crankset (SVG +
+`animate-spin`, `motion-reduce` safe), shown the ENTIRE time `loading` is true — including mid-stream
+tool-call pauses where the chat previously looked stalled. "Thinking…" before text, "Working…" while
+streaming. Frontend-only; Vercel-deployed.
+
+Also this session: orphaned-message guard (gravelfit `d3a23a6` — persist a turn only once it produces a
+reply; frontend drops trailing unanswered user msg on load).
+
 ### ✅ 2026-07-08: PDC-freshness nudge (gravelfit `4cfc7fc`)
 
 Added power-duration-curve freshness to the athlete context. `intervals_client.get_ride_power_curve()`
