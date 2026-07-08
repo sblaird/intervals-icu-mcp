@@ -245,6 +245,18 @@ Not built (available later): gear maintenance reminders; one-tap daily readiness
 **App is fully live and healthy.** Frontend `https://frontend-two-alpha-22.vercel.app`, backend
 `gravelfit-backend.fly.dev`, MCP `intervals-mcp-840283109221.us-central1.run.app`.
 
+### ✅ 2026-07-08: PDC-freshness nudge (gravelfit `4cfc7fc`)
+
+Added power-duration-curve freshness to the athlete context. `intervals_client.get_ride_power_curve()`
+fetches `/power-curves?type=Ride` (parallel `secs`/`values`/`activity_id` arrays + `activities` map);
+`athlete_context._pdc_freshness()` finds, per band (5s neuromuscular / 1min anaerobic / 5min VO2 /
+20min threshold), the best watts and how old the setting activity is, flagging STALE at ≥56 days.
+Prompt §0 nudge (e): when a band is stale, proactively prompt a specific targeted max effort. **Finding:
+this athlete's whole PDC is 310-358 days old** (5s 1056W/310d, 1min 512W/358d, 5min 359W/318d, 20min
+309W/333d) — so eFTP/zones/%-targets are all derived from ~year-old efforts. **Verified live:** "what
+should I prioritize?" → coach proactively flagged "entire PDC stale, every band 300+ days old, a problem
+38 days from Vermont Overland" (no tool call — data is in the injected context).
+
 ### ✅ 2026-07-07: Workout-review skill folded into the coach
 
 Adapted the `workout-review` skill (user-supplied `.skill` bundle) into `coach_system_prompt.md`
