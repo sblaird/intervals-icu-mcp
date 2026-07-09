@@ -40,10 +40,29 @@ post-segment). Frontend: elapsed ticker (`Thinking… · 2:14`), live tool label
 line. Also note: user's screenshot showed the OLD pre-cranks bundle (stale tab) — new bundle
 verified live on Vercel.
 
-**⏭️ NEXT (both gated on user go-ahead):** `cd C:\Users\steph\gravelfit && fly deploy` (backend:
-volume + heartbeat + migrations) and `git push` (frontend → Vercel). After deploy, verify:
-`/api/coach/history` empty (fresh volume DB), plan-next-week turn survives >2min with pings,
-data survives a machine stop/start cycle.
+**✅ SHIPPED + VERIFIED (2026-07-09):** volume deploy + heartbeat deploy + frontend push all
+live. Verified: history starts empty on volume DB; chat rows **survive a forced machine
+restart**; tool_call frames stream live (+5s); new Vercel bundle serving.
+
+## 🔴 2026-07-09 (follow-up): Fly AUTOSTOPPED the machine mid-turn — third stall bug fixed
+
+User hit "Something went wrong" again on a plan-testing turn (post-volume-deploy). Logs showed
+the true sequence: the frontend's **non-streaming fallback** (fired after a stream hiccup) sends
+zero bytes for minutes → Fly proxy idle-kills it (~60s) → proxy then sees zero connections and
+**autostops the machine at 11:20:19 with the turn still running** ("Waiting for background
+tasks" → SIGTERM → "Virtual machine exited abruptly").
+
+Two config traps + one design flaw fixed (gravelfit `79e68c1`, deployed + pushed):
+- `min_machines_running=1` — but it **only counts the primary region**, and primary was `bos`
+  while the machine+volume live in `ord` → also set `primary_region="ord"` (else it's a no-op).
+- `kill_timeout="120s"` so deploys/stops let an in-flight turn finish (default 5s).
+- Frontend: **non-streaming fallback removed** (structurally doomed for long turns) → retry the
+  heartbeat-equipped stream once on a fresh connection; handle backend `error` frames (were
+  silently ignored); keep partial text with a "connection dropped" note instead of discarding.
+
+**Proof:** replayed the exact failing prompt against prod — completed in **344s** with **37
+heartbeat pings** through a ~4.5-min silent connector stretch; full plan proposed, no calendar
+writes, turn persisted. Fly config verified live: primary_region=ord, min=1, kill_timeout=2m0s.
 
 ## 🔀 2026-07-07: PLATFORM PIVOT — moving the chat surface off claude.ai onto GravelFit
 
