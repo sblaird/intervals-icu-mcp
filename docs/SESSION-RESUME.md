@@ -64,6 +64,17 @@ Two config traps + one design flaw fixed (gravelfit `79e68c1`, deployed + pushed
 heartbeat pings** through a ~4.5-min silent connector stretch; full plan proposed, no calendar
 writes, turn persisted. Fly config verified live: primary_region=ord, min=1, kill_timeout=2m0s.
 
+## 🟣 2026-07-09: Rich replies — markdown tables + inline SVG charts (gravelfit `c211ccd`)
+
+Coach bubbles now render full GFM markdown (react-markdown + remark-gfm; XSS-safe, user bubbles
+stay plain) and a custom ```chart fence: `{"type":"line|bar","title","x":[labels],"yLabel",
+"series":[{name,data}]}` rendered by a hand-rolled responsive SVG (`ChatChart.jsx` — no chart
+dependency; categorical x-labels neatly handle the PDC without log axes; malformed/mid-stream
+JSON falls back to a code block). System prompt §15 carries the spec + taste rules (charts only
+for trends/curves/comparisons, ≤2/reply, real tool data only). Verified live: coach produced a
+rides table + a valid PDC bar chart (1056/512/359/309W — real bests) that renders cleanly in the
+browser. Note: react-markdown pushed the Vite bundle >500KB — code-split candidate someday.
+
 ## 🔀 2026-07-07: PLATFORM PIVOT — moving the chat surface off claude.ai onto GravelFit
 
 Decision: stop fighting the claude.ai tool-surfacing bug (below). The conversational surface
