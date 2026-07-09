@@ -64,6 +64,27 @@ Two config traps + one design flaw fixed (gravelfit `79e68c1`, deployed + pushed
 heartbeat pings** through a ~4.5-min silent connector stretch; full plan proposed, no calendar
 writes, turn persisted. Fly config verified live: primary_region=ord, min=1, kill_timeout=2m0s.
 
+## 🟣 2026-07-09: UNIFIED TRAINING LOAD — lifting counts in CTL/ATL/TSB (gravelfit `0bb4da4`, live)
+
+Every strength workout is now mirrored to the intervals.icu calendar as a WeightTraining
+event with an sRPE load estimate (`minutes × RPE / 6`; planned default RPE6/40min ≈ 40).
+Complete → load updated from actual RPE/minutes, event marked done via
+`POST /events/{id}/mark-done` (intervals.icu creates the matching activity → load enters the
+fitness model). Skip/delete planned → mirrored event removed. Title/date patch → event synced.
+icu failures degrade silently (app DB authoritative; `intervals_event_id` nullable).
+Migration 011 adds `intervals_event_id` + `duration_minutes`. Coach prompt §16: app mirrors
+automatically — coach must NEVER create WeightTraining events itself (double-count), passes
+"minutes" per workout, and factors lift fatigue into ride guidance. Today panel gains a
+"Strength today" card with a TSB≤−10 caution. `mark_event_done` added to gravelfit
+intervals_client (invalidates planned+fitness caches).
+
+**Live-verified:** created workout → real icu event 121582744 w/ load+description; deleted →
+404 on icu; Saturday's Baseline Test recreated through the sync path (event 121582784, 35 TSS,
+full exercise list). Gotcha (bit twice): piping curl→`python -c` on Windows decodes stdin as
+cp1252 — a proper UTF-8 em-dash reads as `â€"`, faking corruption; AND non-ASCII inside the
+`python -c` source itself gets mangled on the way in, causing REAL corruption. Use
+`--data-binary @file` with ascii-escaped JSON and verify via ascii()/the MCP tool.
+
 ## 🟣 2026-07-09: STRENGTH TAB — weight lifting component (gravelfit `d2ce9cc`, live + verified)
 
 Full off-season resistance-training component, coach-programmed. Backend: migration 010
