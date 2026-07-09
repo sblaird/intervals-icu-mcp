@@ -1,8 +1,49 @@
 # Session Resume — intervals.icu MCP connector
 
-**Last updated:** 2026-07-07 · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
+**Last updated:** 2026-07-08 (late) · **Repo:** `C:\Users\steph\intervals-icu-mcp` · **Branch:** `main`
 
 Read this first to resume.
+
+## 🚨 2026-07-08 (evening): GravelFit was LOSING ALL DATA on every idle cycle — root-caused + fixed (deploy pending)
+
+User reported: coach "pulling in old context, thinks it's March 2026" + two "Something went
+wrong" errors on plan-next-week turns. Investigation found **two independent production bugs**:
+
+**Bug 1 — total data loss on every machine restart (the March-2026 bug).**
+Chain, each link verified: no `TURSO_DATABASE_URL` secret on Fly → backend fell back to
+`file:gravelfit.db` on the machine **rootfs**, which Fly resets to the Docker image on every
+stop/start (`auto_stop_machines=true` cycles constantly) → AND the March-era local dev DB was
+**baked into the image** because `backend/.dockerignore` is evaluated against the repo-root
+build context, so its bare `gravelfit.db` pattern never matched `backend/gravelfit.db`.
+Net: every idle cycle erased all chats/coach-notes/journal and resurrected the March snapshot
+(proved: prod rows byte-identical to local dev DB, both Fly machines identical after restart).
+The user's 19:45 ride-review chat is unrecoverable — but the review itself survives on
+intervals.icu (`PUT /activity/i163962372` succeeded).
+
+**Fix (gravelfit `0e77e60`, deploy pending):** Fly volume `gravelfit_data` (ord, 1GB, daily
+snapshots) mounted at `/data`; `DB_PATH=/data/gravelfit.db`; `.dockerignore` patterns now
+`**/`-prefixed (+ `**/*.db`); `migrations/009_seed_baseline.sql` seeds races + profile on a
+fresh DB (guarded). Verified locally: fresh DB runs 001–009 clean, coach history starts empty.
+Scaled app to **1 machine** (volume binds to one machine); volume already created.
+
+**Bug 2 — "Something went wrong" ×2 = Fly proxy killing silent streams.**
+Timestamped the live SSE: intro text at +4s, then the **Anthropic MCP connector runs tools
+server-side with ZERO frames on the wire for minutes** (one test 16s total, another silent 2min+;
+the user's 11-min turn = two ~5-min `pause_turn` segments). MCP server itself sub-second per
+call (min-instances=1 confirmed working — NOT cold starts). Fly's proxy kills idle HTTP after
+~60s → stream dies → frontend falls back to non-streaming → that dies too → error toast.
+
+**Fix (gravelfit `1eda2dc`, deploy pending):** backend heartbeat — turn runs in a background
+task feeding a queue; `chat_stream` drains with 8s timeout and emits `ping` frames during
+silences; `mcp_tool_use` now surfaces **live** via `content_block_start` (was batched
+post-segment). Frontend: elapsed ticker (`Thinking… · 2:14`), live tool label, 20s reassurance
+line. Also note: user's screenshot showed the OLD pre-cranks bundle (stale tab) — new bundle
+verified live on Vercel.
+
+**⏭️ NEXT (both gated on user go-ahead):** `cd C:\Users\steph\gravelfit && fly deploy` (backend:
+volume + heartbeat + migrations) and `git push` (frontend → Vercel). After deploy, verify:
+`/api/coach/history` empty (fresh volume DB), plan-next-week turn survives >2min with pings,
+data survives a machine stop/start cycle.
 
 ## 🔀 2026-07-07: PLATFORM PIVOT — moving the chat surface off claude.ai onto GravelFit
 
