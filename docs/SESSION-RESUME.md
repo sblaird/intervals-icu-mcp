@@ -64,6 +64,26 @@ Two config traps + one design flaw fixed (gravelfit `79e68c1`, deployed + pushed
 heartbeat pings** through a ~4.5-min silent connector stretch; full plan proposed, no calendar
 writes, turn persisted. Fly config verified live: primary_region=ord, min=1, kill_timeout=2m0s.
 
+## 🟣 2026-07-09: STRENGTH TAB — weight lifting component (gravelfit `d2ce9cc`, live + verified)
+
+Full off-season resistance-training component, coach-programmed. Backend: migration 010
+(`lift_workouts` + `lift_exercises` — prescription + actuals, `name_norm` keys progression),
+`routers/lifting.py` (CRUD, exercise patch, per-lift progression), client-side coach tool
+`log_strength_workouts` (tool machinery generalized to `_run_client_tools`; `_make_lift_writer`
+in coach.py binds it to the request db), athlete-context "Strength training" section (recent
+sessions + latest-vs-prior weight per lift, grouped on normalized names — omitted until data
+exists), prompt §16 (exact-name reuse, progress from actuals, ≤2 days/wk in-season, confirm
+before writing). Frontend: Strength nav tab + page — "Up next" card (tap-to-complete circles,
+inline actuals editing, session RPE/notes, Complete/Skip), coming-up list, per-lift progression
+chart (ChatChart → components/shared), compact history, manual add form.
+
+**Live-verified end-to-end:** coach turn programmed "Baseline Test — Full Body" for 2026-07-11
+(3 KB exercises @ 16kg — it used its kettlebell context); appeared on the Strength tab; tap
+complete 0/3→1/3 worked (reset back). Local fresh-DB test covered migrations 001-010, coach-tool
+write, actuals, progression across name-spelling variants. Gotcha: curl from Git Bash mangles
+em-dashes in `-d` strings → 400s from FastAPI; use `--data-binary @file`. Windows console
+mojibake (cp1252) faked "storage corruption" — always check `ascii()` of the parsed value.
+
 ## 🟣 2026-07-09: Rich replies — markdown tables + inline SVG charts (gravelfit `c211ccd`)
 
 Coach bubbles now render full GFM markdown (react-markdown + remark-gfm; XSS-safe, user bubbles
