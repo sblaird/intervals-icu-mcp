@@ -64,6 +64,17 @@ Two config traps + one design flaw fixed (gravelfit `79e68c1`, deployed + pushed
 heartbeat pings** through a ~4.5-min silent connector stretch; full plan proposed, no calendar
 writes, turn persisted. Fly config verified live: primary_region=ord, min=1, kill_timeout=2m0s.
 
+## 🟣 2026-07-09 (late): coach §17 domain expertise + badge fix (gravelfit `b2b435f`)
+
+Prompt §17: StrongFirst-method strength (strength-as-skill, 5x5 w/ step loading, KB-jump
+bridging via ladders/asymmetric pairs, waviness, deloads on cycling recovery week), telemark
+prep (turn = loaded rear-foot lunge; eccentric quad, iso endurance, soleus, 8-10wk ramp),
+50+ rules (power first, 48-72h pattern recovery, tendon ramps), mobility priorities, seasonal
+integration. Migration 012 restored the Baseline Test's coach provenance. Decision: NO
+per-domain sub-agents — unified coach + prompt-section depth keeps cross-domain integration
+(interference, unified load) in one context; revisit only if the prompt outgrows caching or a
+parallel heavy-analysis job appears.
+
 ## 🟣 2026-07-09: UNIFIED TRAINING LOAD — lifting counts in CTL/ATL/TSB (gravelfit `0bb4da4`, live)
 
 Every strength workout is now mirrored to the intervals.icu calendar as a WeightTraining
