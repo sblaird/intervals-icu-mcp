@@ -11,6 +11,7 @@ from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
 from ..subjective_scales import WELLNESS_SCALE_NOTE, wellness_label
+from ..timeutil import local_now
 
 
 def _emit_subjective(target: dict[str, Any], field: str, value: int | None) -> None:
@@ -49,9 +50,9 @@ async def get_wellness_data(
 
     try:
         # Calculate date range
-        oldest_date = datetime.now() - timedelta(days=days_back)
-        oldest = oldest_date.strftime("%Y-%m-%d")
-        newest = datetime.now().strftime("%Y-%m-%d")
+        now = local_now(config)
+        oldest = (now - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        newest = now.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
             wellness_records, dropped = await client.get_wellness(
@@ -153,23 +154,30 @@ async def get_wellness_data(
 
                 wellness_data.append(day_data)
 
-            # Calculate trends if we have multiple days
+            # Calculate trends if we have multiple days. Each trend's "current" is the
+            # newest record that HAS the metric — which can be older than the newest day
+            # (e.g. HRV not yet synced this morning) — so carry its source date to keep
+            # callers from presenting yesterday's value as today's.
             trends: dict[str, Any] = {}
             if len(wellness_records) > 1:
                 # HRV trend
-                hrv_values = [r.hrv for r in wellness_records if r.hrv is not None]
+                hrv_values = [(r.id, r.hrv) for r in wellness_records if r.hrv is not None]
                 if len(hrv_values) >= 2:
                     trends["hrv"] = {
-                        "current": round(hrv_values[0], 1),
-                        "change": round(hrv_values[0] - hrv_values[-1], 1),
+                        "current": round(hrv_values[0][1], 1),
+                        "date": hrv_values[0][0],
+                        "change": round(hrv_values[0][1] - hrv_values[-1][1], 1),
                     }
 
                 # Resting HR trend
-                rhr_values = [r.resting_hr for r in wellness_records if r.resting_hr is not None]
+                rhr_values = [
+                    (r.id, r.resting_hr) for r in wellness_records if r.resting_hr is not None
+                ]
                 if len(rhr_values) >= 2:
                     trends["resting_hr"] = {
-                        "current": rhr_values[0],
-                        "change": rhr_values[0] - rhr_values[-1],
+                        "current": rhr_values[0][1],
+                        "date": rhr_values[0][0],
+                        "change": rhr_values[0][1] - rhr_values[-1][1],
                     }
 
                 # Sleep quality trend
@@ -180,11 +188,12 @@ async def get_wellness_data(
                     trends["avg_sleep_quality"] = round(sum(sleep_values) / len(sleep_values), 1)
 
                 # Weight trend
-                weight_values = [r.weight for r in wellness_records if r.weight is not None]
+                weight_values = [(r.id, r.weight) for r in wellness_records if r.weight is not None]
                 if len(weight_values) >= 2:
                     trends["weight"] = {
-                        "current": weight_values[0],
-                        "change": round(weight_values[0] - weight_values[-1], 1),
+                        "current": weight_values[0][1],
+                        "date": weight_values[0][0],
+                        "change": round(weight_values[0][1] - weight_values[-1][1], 1),
                     }
 
             result_data: dict[str, Any] = {

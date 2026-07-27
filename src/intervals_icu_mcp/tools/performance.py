@@ -1,6 +1,6 @@
 """Performance analysis tools for Intervals.icu MCP server."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated, Any
 
 from fastmcp import Context
@@ -8,6 +8,7 @@ from fastmcp import Context
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..response_builder import ResponseBuilder
+from ..timeutil import local_now
 
 
 async def get_power_curves(
@@ -46,7 +47,7 @@ async def get_power_curves(
         oldest = None
 
         if days_back is not None:
-            oldest_date = datetime.now() - timedelta(days=days_back)
+            oldest_date = local_now(config) - timedelta(days=days_back)
             oldest = oldest_date.strftime("%Y-%m-%d")
             period_label = f"{days_back}_days"
         elif time_period:
@@ -57,7 +58,7 @@ async def get_power_curves(
             }
             if time_period.lower() in period_map:
                 days = period_map[time_period.lower()]
-                oldest_date = datetime.now() - timedelta(days=days)
+                oldest_date = local_now(config) - timedelta(days=days)
                 oldest = oldest_date.strftime("%Y-%m-%d")
                 period_label = time_period.lower()
             elif time_period.lower() == "all":
@@ -70,7 +71,7 @@ async def get_power_curves(
                 )
         else:
             # Default to 90 days
-            oldest_date = datetime.now() - timedelta(days=90)
+            oldest_date = local_now(config) - timedelta(days=90)
             oldest = oldest_date.strftime("%Y-%m-%d")
             period_label = "90_days"
 

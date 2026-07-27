@@ -1,6 +1,6 @@
 """Athlete profile and fitness tools for Intervals.icu MCP server."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from fastmcp import Context
@@ -8,6 +8,7 @@ from fastmcp import Context
 from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient
 from ..response_builder import ResponseBuilder
+from ..timeutil import local_now
 
 
 async def get_athlete_profile(
@@ -152,7 +153,7 @@ async def _latest_fitness_from_wellness(
     ``get_fitness_summary``. Returns ``(ctl, atl, tsb, ramp_rate)``; any element
     may be ``None`` if no recent row has the data.
     """
-    newest = datetime.now()
+    newest = local_now(client.config)
     oldest = newest - timedelta(days=30)
     records, _dropped = await client.get_wellness(
         oldest=oldest.strftime("%Y-%m-%d"),

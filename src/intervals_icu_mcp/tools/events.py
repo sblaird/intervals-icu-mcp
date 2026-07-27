@@ -10,6 +10,7 @@ from ..auth import ICUConfig
 from ..client import ICUAPIError, ICUClient, dropped_items_metadata
 from ..coercion import CoerceInt, int_schema
 from ..response_builder import ResponseBuilder
+from ..timeutil import local_now
 
 
 async def get_calendar_events(
@@ -38,8 +39,9 @@ async def get_calendar_events(
 
     try:
         # Calculate date range
-        oldest_date = datetime.now() - timedelta(days=days_back)
-        newest_date = datetime.now() + timedelta(days=days_ahead)
+        now = local_now(config)
+        oldest_date = now - timedelta(days=days_back)
+        newest_date = now + timedelta(days=days_ahead)
 
         oldest = oldest_date.strftime("%Y-%m-%d")
         newest = newest_date.strftime("%Y-%m-%d")
@@ -86,7 +88,7 @@ async def get_calendar_events(
                 if date not in events_by_date:
                     events_by_date[date] = []
 
-                today = datetime.now().date()
+                today = local_now(config).date()
 
                 if date_obj == today:
                     relative_timing = "today"
@@ -184,8 +186,9 @@ async def get_upcoming_workouts(
 
     try:
         # Look ahead 30 days to find workouts
-        oldest = datetime.now().strftime("%Y-%m-%d")
-        newest_date = datetime.now() + timedelta(days=30)
+        now = local_now(config)
+        oldest = now.strftime("%Y-%m-%d")
+        newest_date = now + timedelta(days=30)
         newest = newest_date.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
@@ -214,7 +217,7 @@ async def get_upcoming_workouts(
                 # Lenient: see comment in get_calendar_events.
                 assert workout.start_date_local is not None  # filtered above
                 date_obj = datetime.fromisoformat(workout.start_date_local).date()
-                today = datetime.now().date()
+                today = local_now(config).date()
 
                 if date_obj == today:
                     relative_timing = "today"

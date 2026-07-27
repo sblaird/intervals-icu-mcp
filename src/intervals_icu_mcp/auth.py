@@ -18,6 +18,9 @@ class ICUConfig(BaseSettings):
 
     intervals_icu_api_key: str = ""
     intervals_icu_athlete_id: str = ""
+    # IANA timezone for "today" / date-range defaults (e.g. "America/New_York").
+    # Hosted servers run UTC; without this, evening queries shift ranges a day forward.
+    intervals_icu_timezone: str = "UTC"
 
 
 def load_config() -> ICUConfig:

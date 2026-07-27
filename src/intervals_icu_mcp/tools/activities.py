@@ -20,6 +20,7 @@ from ..subjective_scales import (
 from ..subjective_scales import (
     feel_label as _format_feel_label,
 )
+from ..timeutil import local_now
 
 # R4 (STB-H2): a season-long GPX can be 10-50 MB (+33% as base64); inlining it
 # blows the MCP message limit and Cloud Run's 512 MiB budget. Files above this
@@ -141,7 +142,7 @@ async def get_recent_activities(
 
     try:
         # Calculate date range
-        oldest_date = datetime.now() - timedelta(days=days_back)
+        oldest_date = local_now(config) - timedelta(days=days_back)
         oldest = oldest_date.strftime("%Y-%m-%d")
 
         async with ICUClient(config) as client:
