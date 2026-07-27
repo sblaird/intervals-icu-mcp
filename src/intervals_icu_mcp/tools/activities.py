@@ -2,6 +2,7 @@
 
 import base64
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 from typing import Annotated, Any
@@ -44,7 +45,10 @@ def _resolve_output_path(output_path: str) -> str:
     and ``..`` traversal). Creates parent directories as needed.
     """
     scratch_dir = _download_scratch_dir()
-    if os.path.isabs(output_path) or os.path.splitdrive(output_path)[0]:
+    # splitdrive only detects drive letters when running ON Windows — the hosted
+    # server runs Linux, so reject "C:..." prefixes explicitly on every platform.
+    has_drive_prefix = os.path.splitdrive(output_path)[0] or re.match(r"^[A-Za-z]:", output_path)
+    if os.path.isabs(output_path) or has_drive_prefix:
         raise ValueError(
             "output_path must be a relative path; files are saved inside the "
             f"scratch directory ({scratch_dir})"
