@@ -63,3 +63,4 @@ exports/
 # Secrets dropped into Updates/ (e.g. API keys) — never commit
 Updates/*.txt
 Updates/**/*key*
+.claude/settings.local.json
