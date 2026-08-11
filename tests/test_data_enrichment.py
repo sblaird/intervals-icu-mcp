@@ -106,6 +106,30 @@ class TestActivityEnrichment:
         for section in ("zone_times", "fitness", "fueling", "environment"):
             assert section not in data
 
+    async def test_description_is_always_present_even_when_empty(self, mock_config, respx_mock):
+        """An omitted key can't be told apart from "this tool doesn't report notes".
+
+        A reader deciding whether a review already exists has to be able to see
+        that the field is empty — otherwise it guesses, and it guesses wrong.
+        """
+        minimal = {"id": "i3", "name": "Recovery spin", "start_date_local": "2026-07-02T07:00:00"}
+        respx_mock.get("/activity/i3").mock(return_value=Response(200, json=minimal))
+        body = json.loads(await get_activity_details(activity_id="i3", ctx=_ctx(mock_config)))
+
+        assert body["data"]["description"] == ""
+
+    async def test_description_is_returned_when_set(self, mock_config, respx_mock):
+        activity = {
+            "id": "i4",
+            "name": "Gravel",
+            "start_date_local": "2026-07-02T07:00:00",
+            "description": "[GravelFit]\nReviewed 2026-07-02\n[/GravelFit]",
+        }
+        respx_mock.get("/activity/i4").mock(return_value=Response(200, json=activity))
+        body = json.loads(await get_activity_details(activity_id="i4", ctx=_ctx(mock_config)))
+
+        assert "[GravelFit]" in body["data"]["description"]
+
 
 # --- R15: wellness vo2max ------------------------------------------------------
 

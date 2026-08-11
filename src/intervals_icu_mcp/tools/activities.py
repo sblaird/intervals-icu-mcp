@@ -241,8 +241,11 @@ async def get_activity_details(
                 "start_date": activity.start_date_local,
             }
 
-            if activity.description:
-                activity_data["description"] = activity.description
+            # Always present, even when empty. An omitted key is ambiguous — the
+            # reader cannot tell "this ride has no notes" from "this tool doesn't
+            # report notes" — and a coach deciding whether a review already exists
+            # will guess. An explicit "" is evidence; a missing key is not.
+            activity_data["description"] = activity.description or ""
 
             # Duration and distance
             if activity.moving_time:
