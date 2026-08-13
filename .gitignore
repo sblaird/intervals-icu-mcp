@@ -68,3 +68,7 @@ Updates/**/*key*
 # QA screenshots dropped in by app QA sessions — never commit
 *.jpeg
 *.jpg
+
+# Tooling droppings from Claude/QA sessions
+.lean-ctx/
+.playwright-mcp/
