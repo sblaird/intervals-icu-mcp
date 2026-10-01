@@ -485,7 +485,7 @@ class TestFullTransportAcceptance:
                     "code_verifier": "v" * 64,
                 },
             )
-            assert token.status_code == 400
+            assert token.status_code in (400, 401)  # mcp SDK returns 401 since 1.30
             assert "access_token" not in token.json()
 
     @respx.mock

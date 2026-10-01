@@ -42,8 +42,6 @@ import os
 from typing import Any
 
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 import intervals_icu_mcp.server as server_module  # noqa: F401  # registers all tools
 from intervals_icu_mcp.google_oauth import (
@@ -69,8 +67,6 @@ def main() -> None:
         raise RuntimeError("MCP_SERVER_URL must be set to the public HTTPS URL of this service")
 
     transport = os.getenv("MCP_TRANSPORT", "streamable-http")
-    transport_path = "/mcp" if transport in ("streamable-http", "http") else "/sse"
-    resource_url = f"{server_url}{transport_path}"
 
     mcp = server_module.mcp
     client_registration_options = ClientRegistrationOptions(
@@ -114,24 +110,6 @@ def main() -> None:
     )
     service_token_enabled = len(os.getenv("MCP_SERVICE_TOKEN", "").strip()) >= 32
     logger.info("Static service-token auth enabled: %s", service_token_enabled)
-
-    # Workaround for fastmcp 2.12.4: the WWW-Authenticate header on 401s points
-    # to /.well-known/oauth-protected-resource (no suffix), but only the
-    # per-resource path is registered. Alias the no-suffix path to the same
-    # resource metadata so claude.ai's discovery follows correctly.
-    async def protected_resource_metadata(_request: Request) -> JSONResponse:
-        return JSONResponse(
-            {
-                "resource": resource_url,
-                "authorization_servers": [f"{server_url}/"],
-                "scopes_supported": ["mcp"],
-                "bearer_methods_supported": ["header"],
-            }
-        )
-
-    mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS", "HEAD"])(
-        protected_resource_metadata
-    )
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")

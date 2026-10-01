@@ -40,7 +40,7 @@ async def get_power_curves(
         JSON string with power curve data
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         # Determine date range
@@ -222,7 +222,7 @@ async def get_power_model(
         JSON string with the raw model parameters
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -263,7 +263,7 @@ async def get_power_vs_hr_trend(
         JSON string with the power-vs-HR curve for the range
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:

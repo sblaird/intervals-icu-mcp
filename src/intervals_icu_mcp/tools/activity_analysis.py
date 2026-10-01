@@ -143,7 +143,7 @@ async def get_activity_streams(
         and stride.
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     if max_samples is not None and max_samples < 1:
         return ResponseBuilder.build_error_response(
@@ -255,7 +255,7 @@ async def get_activity_intervals(
         JSON string with interval data
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -371,7 +371,7 @@ async def get_best_efforts(
         JSON string with best efforts data
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -481,7 +481,7 @@ async def search_intervals(
         JSON string with matching intervals
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -561,7 +561,7 @@ async def get_power_histogram(
         JSON string with power distribution bins
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -624,7 +624,7 @@ async def get_hr_histogram(
         JSON string with HR distribution bins
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -687,7 +687,7 @@ async def get_pace_histogram(
         JSON string with pace distribution bins
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -761,7 +761,7 @@ async def get_gap_histogram(
         JSON string with GAP distribution bins
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -838,7 +838,7 @@ async def get_power_vs_hr(
         JSON string with the power-vs-HR plot payload.
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -872,7 +872,7 @@ async def get_time_at_hr(
         JSON string with the time-at-HR plot payload.
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -957,7 +957,7 @@ async def get_activity_curves(
         JSON string with the curve payload
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     if curve_type not in ("power", "hr", "pace"):
         return ResponseBuilder.build_error_response(
@@ -1015,7 +1015,7 @@ async def get_interval_stats(
         JSON string with stats for the span
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     if start_index < 0 or end_index <= start_index:
         return ResponseBuilder.build_error_response(
@@ -1059,7 +1059,7 @@ async def get_activity_segments(
         JSON string with the segment efforts
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:

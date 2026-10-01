@@ -34,9 +34,11 @@ class ConfigMiddleware(Middleware):
                 "Please run 'icu-mcp-auth' to set up authentication."
             )
 
-        # Inject config into context state for tools to access
+        # Inject config into context state for tools to access.
+        # serializable=False keeps it request-scoped (no JSON round-trip that
+        # would strip the pydantic model back to a plain dict).
         if context.fastmcp_context:
-            context.fastmcp_context.set_state("config", config)
+            await context.fastmcp_context.set_state("config", config, serializable=False)
 
         # Continue to the tool execution
         return await call_next(context)

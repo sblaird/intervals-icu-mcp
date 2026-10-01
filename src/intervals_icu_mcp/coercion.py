@@ -137,16 +137,18 @@ def widen_tool_schemas_for_string_args(server: Any) -> int:
     """Widen every registered tool's numeric/array params to accept string forms.
 
     Call once, after all tools are registered. Returns the number of params
-    widened (handy for a startup log). Reaches into FastMCP's tool manager, which
-    stores the live tool objects whose ``parameters`` dict is what gets served and
+    widened (handy for a startup log). Reaches into FastMCP internals to access
+    the live tool objects whose ``parameters`` dict is what gets served and
     validated against.
     """
-    tools = cast(
-        "dict[str, Any]",
-        server._tool_manager._tools,  # noqa: SLF001 — FastMCP has no public accessor
-    )
+    # fastmcp 3.x stores all components (tools, resources, prompts) in a single
+    # dict keyed by prefixed key; filter to only Tool instances.
+    from fastmcp.tools import Tool as FastMCPTool  # noqa: PLC0415
+
+    raw = cast("dict[str, Any]", server._local_provider._components)  # noqa: SLF001
+    tool_values: list[Any] = [v for v in raw.values() if isinstance(v, FastMCPTool)]
     widened = 0
-    for tool in tools.values():
+    for tool in tool_values:
         schema = getattr(tool, "parameters", None)
         if not isinstance(schema, dict):
             continue
