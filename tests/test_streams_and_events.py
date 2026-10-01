@@ -6,7 +6,7 @@ Covers issues from the 2026-07-01 connector issues log:
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from httpx import Response
 
@@ -20,7 +20,7 @@ class TestActivityStreamsResilience:
     async def test_flat_latlng_is_reshaped_into_pairs(self, mock_config, respx_mock):
         """A flat [lat, lng, lat, lng, ...] latlng stream is reshaped, not crashed."""
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         payload = [
             {"type": "watts", "data": [100, 110, 120, 130]},
@@ -46,7 +46,7 @@ class TestActivityStreamsResilience:
     async def test_unparseable_stream_dropped_but_others_survive(self, mock_config, respx_mock):
         """One bad stream is dropped; the good ones still come through."""
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         payload = [
             {"type": "watts", "data": [200, 210, 220]},
@@ -67,7 +67,7 @@ class TestActivityStreamsResilience:
     async def test_dropped_stream_reported_in_metadata(self, mock_config, respx_mock):
         """A dropped stream is surfaced in response metadata so the LLM knows it's partial (Issue #3 follow-on)."""
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         payload = [
             {"type": "watts", "data": [200, 210, 220]},
@@ -89,7 +89,7 @@ class TestActivityStreamsResilience:
     async def test_clean_streams_have_no_partial_metadata(self, mock_config, respx_mock):
         """When nothing is dropped, no partial/dropped_streams metadata is emitted."""
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         payload = [{"type": "watts", "data": [100, 110, 120]}]
         respx_mock.get("/activity/i999/streams").mock(return_value=Response(200, json=payload))
@@ -109,7 +109,7 @@ class TestCreateEventValidation:
     async def test_workout_without_type_returns_clear_error(self, mock_config, respx_mock):
         """category=WORKOUT with no event_type returns a validation error, not a raw 422."""
         mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
+        mock_ctx.get_state = AsyncMock(return_value=mock_config)
 
         result = await create_event(
             start_date="2026-07-02",

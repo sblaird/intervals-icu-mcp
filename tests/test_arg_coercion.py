@@ -206,9 +206,10 @@ class TestWidenPropertySchema:
 
 async def test_no_bare_numeric_or_array_params_remain():
     """Every registered tool param is string-tolerant after the startup widening."""
-    tools = await mcp.get_tools()
+    tools_list = await mcp.list_tools()
     bare: list[str] = []
-    for name, tool in tools.items():
+    for tool in tools_list:
+        name = tool.name
         for pname, p in (tool.parameters or {}).get("properties", {}).items():
             if pname == "ctx":
                 continue

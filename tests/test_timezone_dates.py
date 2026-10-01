@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from httpx import Response
 
@@ -26,7 +26,7 @@ TZ_BEHIND = "Etc/GMT+12"  # UTC-12 (POSIX sign convention is inverted)
 
 def _ctx(mock_config) -> MagicMock:
     ctx = MagicMock()
-    ctx.get_state.return_value = mock_config
+    ctx.get_state = AsyncMock(return_value=mock_config)
     return ctx
 
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import Response
@@ -24,7 +24,7 @@ from intervals_icu_mcp.tools.wellness import get_wellness_data, get_wellness_for
 
 def _ctx(mock_config) -> MagicMock:
     ctx = MagicMock()
-    ctx.get_state.return_value = mock_config
+    ctx.get_state = AsyncMock(return_value=mock_config)
     return ctx
 
 

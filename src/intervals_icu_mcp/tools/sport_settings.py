@@ -110,7 +110,7 @@ async def get_sport_settings(
         Formatted list of sport settings with thresholds and zones
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -176,7 +176,7 @@ async def update_sport_settings(
         Updated sport settings
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         pace_mps, _pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
@@ -239,7 +239,7 @@ async def apply_sport_settings(
         Result of applying settings
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
@@ -285,7 +285,7 @@ async def create_sport_settings(
         Created sport settings
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         pace_mps, pace_units = _resolve_pace_mps(pace_threshold, swim_threshold)
@@ -342,7 +342,7 @@ async def delete_sport_settings(
         Deletion confirmation
     """
     assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
+    config: ICUConfig = await ctx.get_state("config")
 
     try:
         async with ICUClient(config) as client:
